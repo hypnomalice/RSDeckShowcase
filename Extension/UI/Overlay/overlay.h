@@ -480,6 +480,7 @@ struct ItemBrowserView {
     std::string search, filter; // the search text and the filter's name
     unsigned shown{}, total{};  // tiles in the grid that has the focus
     bool focused_favorite{};    // the highlighted item is a favorite
+    bool board{};               // the grid is one of the Board tabs: V makes a turnaround
     // The mod the highlighted item is from (empty title: the game's own), for its card: its icon
     // file (UTF-8), how many items it has, and whether it only changes one of the game's.
     std::string mod_title, mod_author, mod_version, mod_icon;
@@ -491,6 +492,7 @@ struct ItemBrowserHost {
     void (*toggle_favorite)(){};
     void (*set_search)(const char *text){};
     void (*cycle_filter)(){};
+    void (*turnaround)(){};
 };
 // `host` must stay valid for the life of the process.
 void set_item_browser(const ItemBrowserHost *host) noexcept;

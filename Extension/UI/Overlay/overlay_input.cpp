@@ -185,6 +185,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
             }
             if (!control && wp == 'F') item_browser_key(ItemBrowserKey::favorite);
             if (!control && wp == 'X') item_browser_key(ItemBrowserKey::filter);
+            if (!control && wp == 'V') item_browser_key(ItemBrowserKey::turnaround);
         }
         // T opens the chat, the key the game itself reserves for it
         // (Processor_Keyboard_Gameplay_Chat), while in a session and nothing

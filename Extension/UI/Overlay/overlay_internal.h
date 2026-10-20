@@ -341,7 +341,7 @@ bool perf_hud_pending();
 void draw_perf_hud();
 void draw_perf_window();
 // The skater item grids' search bar and prompts (item_browser_overlay.cpp): polled every presented frame.
-enum class ItemBrowserKey { favorite, filter };
+enum class ItemBrowserKey { favorite, filter, turnaround };
 bool item_browser_pending();
 bool item_browser_open();
 void item_browser_key(ItemBrowserKey key);

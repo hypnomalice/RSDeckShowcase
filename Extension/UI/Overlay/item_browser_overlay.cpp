@@ -222,6 +222,7 @@ void item_browser_key(ItemBrowserKey key) {
     if (!h) return;
     if (key == ItemBrowserKey::favorite && h->toggle_favorite) h->toggle_favorite();
     if (key == ItemBrowserKey::filter && h->cycle_filter) h->cycle_filter();
+    if (key == ItemBrowserKey::turnaround && h->turnaround && panel().view.board) h->turnaround();
 }
 
 void item_browser_search_cleared() {
@@ -342,6 +343,7 @@ void draw_item_browser() {
         prompt("F", view.focused_favorite ? "Unfavorite" : "Favorite");
         prompt("-", "Search");
         prompt("X", view.filter);
+        if (view.board) prompt("V", "Turnaround");
     }
     if (view.focused_favorite && !typing)
         star(draw, ImVec2(at.x - 22 * scale, at.y + height * 0.5f), 13 * scale, skate_theme::bar);
