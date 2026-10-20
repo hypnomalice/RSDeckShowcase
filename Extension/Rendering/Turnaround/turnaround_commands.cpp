@@ -60,7 +60,7 @@ void register_turnaround_commands(Commands& registry) {
     arguments.rest = true;
     arguments.complete = [](const Model&, auto) { return std::vector<std::string>{"export", "set", "open", "cancel", "grab", "boards", "parts", "stick"}; };
     auto command = action("turnaround",
-                          "Board turnarounds (V on the Board screen): export [gif|apng|webm] [clear|matte] [frames] [size] [parts|noparts] [key=value], "
+                          "Board and skater turnarounds (V on the Board or Skaters screen): export [skater] [gif|apng|webm] [clear|matte] [frames] [size] [parts|noparts] [key=value], "
                           "set <key> <value> (format, background, matte, parts, speed, direction, seconds, fps, size; kept), open (the folder), cancel. Research aids: grab (save this frame to Turnarounds\\), boards [seconds] "
                           "(find the board on show; spin it while this watches), parts (the items worn now), stick <x> <y> [seconds] (push the right "
                           "stick, -1..1). Answers go to the log.",
@@ -71,7 +71,11 @@ void register_turnaround_commands(Commands& registry) {
         words >> verb;
         if (verb == "export") {
             // One-word settings for this and later turnarounds: gif, webm, matte, noparts, 72, 768...
+            // "skater" turns the skater (the Skaters screen) rather than the board.
+            auto subject = turnaround::Subject::board;
             for (std::string word; words >> word;) {
+                if (word == "skater") { subject = turnaround::Subject::skater; continue; }
+                if (word == "board") continue;
                 const auto equals = word.find('=');
                 if (equals != std::string::npos) { turnaround::set_option(word.substr(0, equals), word.substr(equals + 1)); continue; }
                 if (word == "gif" || word == "apng" || word == "png" || word == "webm") turnaround::set_option("format", word);
@@ -80,7 +84,7 @@ void register_turnaround_commands(Commands& registry) {
                 else if (std::uint32_t n{}; std::from_chars(word.data(), word.data() + word.size(), n).ec == std::errc{} && n)
                     turnaround::set_option(n <= 12 ? "seconds" : "size", word);
             }
-            out(turnaround::start_export());
+            out(turnaround::start_export(subject));
         } else if (verb == "set") {
             std::string key, value;
             words >> key >> value;

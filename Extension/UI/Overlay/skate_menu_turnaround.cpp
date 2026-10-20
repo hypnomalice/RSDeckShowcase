@@ -78,9 +78,9 @@ void turnaround_addon(SkateMenu& menu, const Model& model, const CallbacksV3& ca
         send_console(menu, callbacks, "turnaround set " + key + " " + value);
     };
 
-    begin_card(menu, "turnaround", "TURNAROUND", "A spinning picture of your board, to share");
-    note("On the Board screen press V: the board turns once by itself and is saved to the Turnarounds folder beside Skate.exe. "
-         "Keep your hands off the controls while it turns.");
+    begin_card(menu, "turnaround", "TURNAROUND", "A spinning picture of your board or skater, to share");
+    note("Press V on the Board screen for the board, or on the Skaters screen (no grid open) for the skater in their outfit: it "
+         "turns once by itself and is saved to the Turnarounds folder beside Skate.exe. Keep your hands off the controls while it turns.");
     if (!t.status.empty()) info(menu, t.busy ? "Now" : "Last", t.status);
     const int pressed = button_row(menu, "turnaround-actions",
                                    {{"OPEN TURNAROUNDS FOLDER", callbacks.queue_console_command != nullptr, false, "See the saved turnarounds."},

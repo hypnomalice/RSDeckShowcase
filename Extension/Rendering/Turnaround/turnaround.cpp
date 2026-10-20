@@ -117,6 +117,73 @@ std::vector<Part> worn_board() {
     return parts;
 }
 
+// What the skater wears now, for the Skaters screen's turnaround: every item of the selected preset
+// but the board's, labelled by its catalog category (the game's names for its grids: "tops",
+// "headgear"...), clothes and accessories only (not the body, hair, tattoos or gestures), in the
+// order they are worn from head to foot. Game thread.
+struct OutfitKind { const char* word; const char* label; int order; };
+constexpr OutfitKind outfit_kinds[] = {
+    {"head", "Headwear", 0}, {"hat", "Headwear", 0}, {"cap", "Headwear", 0}, {"beanie", "Headwear", 0}, {"helmet", "Headwear", 0},
+    {"eye", "Eyewear", 1}, {"glass", "Eyewear", 1}, {"mask", "Face", 1},
+    {"neck", "Neckwear", 2}, {"jewel", "Jewellery", 2}, {"ear", "Earrings", 2},
+    {"costume", "Costume", 3}, {"outfit", "Outfit", 3},
+    {"outer", "Outerwear", 4}, {"jacket", "Outerwear", 4}, {"top", "Top", 5}, {"shirt", "Top", 5}, {"hood", "Top", 5},
+    {"glove", "Gloves", 6}, {"wrist", "Wrist", 6}, {"watch", "Wrist", 6}, {"bag", "Bag", 7}, {"backpack", "Bag", 7},
+    {"bottom", "Bottoms", 8}, {"pant", "Bottoms", 8}, {"short", "Bottoms", 8}, {"leg", "Bottoms", 8},
+    {"sock", "Socks", 9}, {"foot", "Shoes", 10}, {"shoe", "Shoes", 10}};
+constexpr const char* not_outfit[] = {"skin", "face_", "body", "hair", "beard", "brow", "makeup", "eyecolo", "eye_colo",
+                                      "tattoo", "gesture", "emote", "voice", "bkobject", "board", "deck", "truck", "wheel", "grip"};
+std::string folded(std::string_view text) {
+    std::string out(text);
+    for (auto& c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return out;
+}
+std::vector<Part> worn_outfit() {
+    std::vector<Part> parts;
+    const auto base = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+    std::uintptr_t manager{}, begin{}, end{};
+    if (!memory::read(base + addr::engine::loadout_manager, manager) || !manager || !memory::read(manager + 0x18, begin) ||
+        !memory::read(manager + 0x20, end) || begin >= end || (end - begin) % 0x48 || (end - begin) / 0x48 > 10)
+        return parts;
+    const auto count = static_cast<std::int32_t>((end - begin) / 0x48);
+    auto preset = selected_preset(base, manager);
+    if (preset < 0 || preset >= count) preset = 0;
+    profile::CosmeticLoadout loadout;
+    std::vector<profile_runtime::CosmeticNativeRecipe> native;
+    if (!profile_runtime::read_cosmetic_recipes(reinterpret_cast<const void*>(begin + static_cast<std::uintptr_t>(preset) * 0x48), loadout, native))
+        return parts;
+    const auto& known = profile_runtime::cosmetic_runtime().items;
+    std::vector<std::pair<int, Part>> found;
+    std::string seen;
+    for (const auto& recipe : loadout.recipes) {
+        if (recipe.template_key == board_template) continue;
+        for (const auto& item : recipe.items) {
+            if (item.asset.empty()) continue;
+            const auto entry = known.find(item.asset);
+            const auto category = folded(entry != known.end() ? entry->second.category : std::string());
+            seen += std::format("\n    {:#x}/{:#010x} {} [{}]", recipe.template_key, item.slot, item.asset, category);
+            const auto has = [&](const char* word) { return category.find(word) != std::string::npos; };
+            if (category.empty() || std::any_of(std::begin(not_outfit), std::end(not_outfit), has)) continue;
+            const auto kind = std::find_if(std::begin(outfit_kinds), std::end(outfit_kinds), [&](const OutfitKind& k) { return has(k.word); });
+            std::string label;
+            int order = 20;
+            if (kind != std::end(outfit_kinds)) label = kind->label, order = kind->order;
+            else {
+                // A category this does not know: its name made readable.
+                label = entry->second.category;
+                std::replace(label.begin(), label.end(), '_', ' ');
+                if (!label.empty()) label[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(label[0])));
+            }
+            found.push_back({order, {label, item_title(item.asset)}});
+        }
+    }
+    std::stable_sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    for (auto& [order, part] : found) parts.push_back(std::move(part));
+    logging::log(logging::Level::info, logging::Channel::customization, "Turnaround: preset {} of {}, {} outfit item(s) of:{}", preset,
+                 count, parts.size(), seen);
+    return parts;
+}
+
 // Notices for the turnaround's progress, raised from the render thread's poll: once for each phase
 // of each turnaround (`runs` counts them).
 std::atomic<unsigned> runs{};
@@ -127,7 +194,7 @@ void report(const Progress& now) {
     if (now.phase == last && run == last_run) return;
     last = now.phase, last_run = run;
     switch (now.phase) {
-    case Phase::capturing: overlay::notify(overlay::NoticeLevel::info, "Turnaround", "Turning the board. Hands off for a few seconds."); break;
+    case Phase::capturing: overlay::notify(overlay::NoticeLevel::info, "Turnaround", now.message + " Hands off for a few seconds."); break;
     case Phase::encoding: overlay::notify(overlay::NoticeLevel::info, "Turnaround", "Saving..."); break;
     case Phase::done: overlay::notify(overlay::NoticeLevel::info, "Turnaround saved", now.message); break;
     case Phase::failed: overlay::notify(overlay::NoticeLevel::warning, "Turnaround", now.message); break;
@@ -339,15 +406,21 @@ void open_folder() {
     ShellExecuteW(nullptr, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
-std::string start_export() {
+std::string start_export(Subject subject) {
     if (session().busy()) return "A turnaround is already being made.";
     try {
         Session::Inputs in;
         in.options = current_options();
+        in.options.subject = subject;
         in.options.frames = static_cast<std::uint32_t>(std::clamp(std::lround(in.options.seconds * static_cast<float>(in.options.fps)), 8L, 240L));
-        in.parts = worn_board();
-        const auto deck = std::find_if(in.parts.begin(), in.parts.end(), [](const Part& part) { return part.slot == "Deck"; });
-        in.title = deck != in.parts.end() ? deck->name : "board";
+        if (subject == Subject::skater) {
+            in.parts = worn_outfit();
+            in.title = "skater";
+        } else {
+            in.parts = worn_board();
+            const auto deck = std::find_if(in.parts.begin(), in.parts.end(), [](const Part& part) { return part.slot == "Deck"; });
+            in.title = deck != in.parts.end() ? deck->name : "board";
+        }
         in.fonts = {built_in(L"FONT_HEADING"), built_in(L"FONT_BODY"), built_in(L"FONT_BRUSH")};
         if (in.fonts.heading.empty() || in.fonts.body.empty() || in.fonts.brush.empty()) in.options.parts = false;
         in.folder = game_folder() / L"Turnarounds";
@@ -356,10 +429,27 @@ std::string start_export() {
         if (!session().start(std::move(in))) return "A turnaround is already being made.";
         const auto progress = session().progress();
         if (progress.phase == Phase::failed) return progress.message;
-        return "Turning the board; the file goes to the Turnarounds folder beside Skate.exe.";
+        return std::string(subject == Subject::skater ? "Turning the skater" : "Turning the board") +
+               "; the file goes to the Turnarounds folder beside Skate.exe.";
     } catch (const std::exception& error) {
         return std::string("The turnaround could not start: ") + error.what();
     }
+}
+
+namespace {
+std::atomic<bool> game_menu{};
+}
+void set_game_menu(bool up) noexcept { game_menu.store(up); }
+bool v_turnaround(Subject& subject) {
+    const auto browsing = item_browser::view();
+    if (browsing.open) {
+        if (!item_browser::board_item(browsing.focused_key, browsing.focused_category)) return false;
+        subject = Subject::board;
+        return true;
+    }
+    if (!game_menu.load()) return false;
+    subject = Subject::skater;
+    return true;
 }
 
 void cancel_export() noexcept { session().cancel(); }

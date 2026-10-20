@@ -2,6 +2,7 @@
 #include "turnaround_encode.h"
 #include "turnaround_matte.h"
 #include "turnaround_panel.h"
+#include "turnaround_subject.h"
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -21,6 +22,7 @@ enum class Format { gif, apng, webm };
 const char* extension(Format format) noexcept;
 
 struct Options {
+    Subject subject{Subject::board}; // chosen for each turnaround, not kept
     Format format{Format::gif};
     bool transparent{true};    // no background; otherwise the board over `matte`
     Rgb matte{24, 25, 28};

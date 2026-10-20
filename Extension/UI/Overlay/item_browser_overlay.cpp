@@ -222,7 +222,8 @@ void item_browser_key(ItemBrowserKey key) {
     if (!h) return;
     if (key == ItemBrowserKey::favorite && h->toggle_favorite) h->toggle_favorite();
     if (key == ItemBrowserKey::filter && h->cycle_filter) h->cycle_filter();
-    if (key == ItemBrowserKey::turnaround && h->turnaround && panel().view.board) h->turnaround();
+    // V: on a Board tab, or with no grid open (the Skaters screen; the turnaround says which it is).
+    if (key == ItemBrowserKey::turnaround && h->turnaround && (panel().view.board || !panel().view.open)) h->turnaround();
 }
 
 void item_browser_search_cleared() {

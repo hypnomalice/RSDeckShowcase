@@ -1576,6 +1576,7 @@ void tick(std::uintptr_t client, std::uintptr_t update) {
             } catch (...) {}
         }
         dingosdk::spotify_station::set_music_screen(menu);
+        dingosdk::turnaround::set_game_menu(menu); // V on the Skaters screen
     }
     dingosdk::spotify_station::tick();
     dingosdk::music_inject::tick();

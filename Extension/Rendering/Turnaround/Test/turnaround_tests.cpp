@@ -325,7 +325,7 @@ public:
     std::vector<std::uint8_t> draw() const {
         constexpr std::uint32_t w = 1280, h = 720;
         std::vector<std::uint8_t> out(std::size_t{w} * h * 4);
-        const float cx = 1280 * 0.76f, cy = 720 * 0.57f;
+        const float cx = 1280 * (skater ? 0.5f : 0.76f), cy = 720 * 0.57f;
         const float half_w = 60 * std::abs(std::cos(static_cast<float>(turn) * 6.2831853f)) + 3, half_h = 230;
         const bool back = std::cos(static_cast<float>(turn) * 6.2831853f) < 0;
         for (std::uint32_t y = 0; y < h; ++y)
@@ -334,6 +334,7 @@ public:
                 float bg = light ? 225.0f : 28.0f + 10.0f * fy / h; // the dark one with a slight vignette
                 float rgb[3] = {bg, bg, bg + 4};
                 if (x > 860 && x < 900 && y > 140 && y < 170) rgb[0] = rgb[1] = rgb[2] = 200; // UI that never moves
+                if (skater && x > 560 && x < 720 && y > 648 && y < 668) rgb[0] = rgb[1] = rgb[2] = 230; // the page numbers, just under the feet
                 const float dx = std::abs(fx - cx) - half_w, dy = std::abs(fy - cy) - half_h;
                 const float cover = std::clamp(0.5f - std::max(dx, dy), 0.0f, 1.0f);
                 const float deck[3] = {back ? 12.0f : 40.0f, back ? 12.0f : 150.0f + 80 * fy / h, back ? 13.0f : 220.0f};
@@ -345,14 +346,15 @@ public:
         return out;
     }
     double turn{};
-    bool light{}, began{}, ended{};
+    bool light{}, began{}, ended{}, skater{};
 private:
     bool backgrounds_;
     double spin_;
     std::vector<std::uint8_t> last_;
 };
 
-void test_session(const std::filesystem::path& fonts, bool backgrounds, Format format, bool transparent, double spin = 0) {
+void test_session(const std::filesystem::path& fonts, bool backgrounds, Format format, bool transparent, double spin = 0,
+                  Subject subject = Subject::board) {
     const auto load = [&](const char* name) {
         std::ifstream in(fonts / name, std::ios::binary);
         return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(in), {});
@@ -360,8 +362,10 @@ void test_session(const std::filesystem::path& fonts, bool backgrounds, Format f
     static const auto brush = load("PermanentMarker-Regular.ttf"), heading = load("Montserrat-ExtraBold.ttf"),
                       body = load("Montserrat-SemiBold.ttf");
     auto stage = std::make_shared<FakeStage>(backgrounds, spin);
+    stage->skater = subject == Subject::skater;
     Session session;
     Session::Inputs in;
+    in.options.subject = subject;
     in.options.format = format;
     in.options.transparent = transparent;
     in.options.frames = 16;
@@ -413,6 +417,7 @@ int main(int argc, char** argv) {
         test_session(argv[1], false, Format::gif, true);
         test_session(argv[1], true, Format::webm, false);
         test_session(argv[1], false, Format::apng, true, 1.0 / 37.3); // turned by the stick, at a speed it must find
+        test_session(argv[1], false, Format::apng, true, 1.0 / 41.7, Subject::skater); // the Skaters screen
     }
     else std::printf("skipped: the parts card and sessions (pass the fonts folder)\n");
     if (!failures) std::printf("turnaround tests passed\n");

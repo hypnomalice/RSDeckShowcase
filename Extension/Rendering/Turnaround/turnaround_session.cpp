@@ -18,17 +18,27 @@ const char* extension(Format format) noexcept {
 }
 
 namespace {
-// Where the Board screen shows the board, as fractions of the game's menu frame (the whole width up
-// to 21:9, a 21:9 frame in the middle of anything wider): right of the item card, below the search
-// bar, left of the Back prompt. Measured from the game at 2000x837 (2026-10-20).
-constexpr float area_left = 0.655f, area_right = 0.86f, area_top = 0.185f, area_bottom = 0.985f;
+// Where the game shows what is turned, as fractions of its menu frame (the whole width up to 21:9, a
+// 21:9 frame in the middle of anything wider). Measured from the game at 2000x837 (2026-10-20):
+//  - the Board screen's board: right of the item card, below the search bar, left of Back;
+//  - the Skaters screen's skater: between the Apparel and Tattoos columns, below the tab icons.
+//    The page numbers under the skater's feet are in it, and are cleared as UI (keep_turning).
+struct Area { float left, right, top, bottom; };
+constexpr Area board_fractions{0.655f, 0.86f, 0.185f, 0.985f};
+constexpr Area skater_fractions{0.27f, 0.735f, 0.14f, 0.985f};
 
-Rect board_area(std::uint32_t width, std::uint32_t height) {
+Rect subject_area(Subject subject, std::uint32_t width, std::uint32_t height) {
+    const auto& a = subject == Subject::skater ? skater_fractions : board_fractions;
     const auto menu_width = std::min<double>(width, height * 21.0 / 9.0), menu_left = (width - menu_width) / 2;
-    const auto x0 = static_cast<std::uint32_t>(menu_left + menu_width * area_left);
-    const auto x1 = static_cast<std::uint32_t>(menu_left + menu_width * area_right);
-    const auto y0 = static_cast<std::uint32_t>(height * double{area_top}), y1 = static_cast<std::uint32_t>(height * double{area_bottom});
+    const auto x0 = static_cast<std::uint32_t>(menu_left + menu_width * a.left);
+    const auto x1 = static_cast<std::uint32_t>(menu_left + menu_width * a.right);
+    const auto y0 = static_cast<std::uint32_t>(height * double{a.top}), y1 = static_cast<std::uint32_t>(height * double{a.bottom});
     return {x0, y0, std::min(x1, width) - x0, std::min(y1, height) - y0};
+}
+const char* noun(Subject subject) noexcept { return subject == Subject::skater ? "skater" : "board"; }
+std::string screen_hint(Subject subject) {
+    return subject == Subject::skater ? "Is the Skaters screen open, with the whole skater on show?"
+                                      : "Is the Board screen open, with the board on show?";
 }
 
 // `area` of a frame, copied out in the frame's own channel order.
@@ -51,34 +61,64 @@ Image opaque_image(const PixelView& view) {
     return out;
 }
 
-// The part of the area the board turned through: every pixel that is at all opaque and changes
-// over the turn (the game's own UI stays the same, so it falls outside), then grown up and down by
-// what is solid in those columns. The nose and tail sit on the axis the board turns about and hardly
-// change, so change alone would cut them off.
-Rect turned_through(const std::vector<Image>& frames) {
+// Keeps only what turned, and says where it is. What moves over the turn (opaque and unlike the
+// first frame) is the subject; what is solid in any frame and joined to that is the rest of it (the
+// nose and tail sit on the axis the board turns about and hardly change); everything else solid in
+// the area is the game's UI, and is cleared from every frame. A rim two pixels wide is kept round it
+// for the soft edges.
+Rect keep_turning(std::vector<Image>& frames) {
     const auto& first = frames.front();
-    Image moving(first.width, first.height);
+    const auto w = first.width, h = first.height;
+    std::vector<std::uint8_t> moved(std::size_t{w} * h), solid(std::size_t{w} * h);
     for (const auto& frame : frames)
-        for (std::size_t i = 0; i < frame.rgba.size(); i += 4) {
-            if (moving.rgba[i + 3] || frame.rgba[i + 3] < 16) continue;
+        for (std::size_t p = 0, i = 0; p < moved.size(); ++p, i += 4) {
+            const auto alpha = frame.rgba[i + 3];
+            if (alpha >= 64) solid[p] = 1;
+            if (moved[p] || alpha < 16) continue;
             int change = 0;
             for (std::size_t c = 0; c < 4; ++c) change = std::max(change, std::abs(frame.rgba[i + c] - first.rgba[i + c]));
-            if (change > 24) moving.rgba[i + 3] = 255;
+            if (change > 24) moved[p] = 1;
         }
-    auto bounds = content_bounds(moving, 1);
-    if (bounds.empty()) return bounds;
-    std::uint32_t top = bounds.y, bottom = bounds.y + bounds.height;
-    for (const auto& frame : frames)
-        for (std::uint32_t y = 0; y < frame.height; ++y) {
-            if (y >= top && y < bottom) continue;
-            for (std::uint32_t x = bounds.x; x < bounds.x + bounds.width; ++x)
-                if (frame.at(x, y)[3] >= 64) {
-                    top = std::min(top, y), bottom = std::max(bottom, y + 1);
-                    break;
-                }
-        }
-    bounds.y = top, bounds.height = bottom - top;
-    return bounds;
+    // Flood from what moved over what is solid.
+    std::vector<std::uint8_t> kept(moved.size());
+    std::vector<std::uint32_t> todo;
+    for (std::uint32_t p = 0; p < moved.size(); ++p)
+        if (moved[p]) kept[p] = 1, todo.push_back(p);
+    while (!todo.empty()) {
+        const auto p = todo.back();
+        todo.pop_back();
+        const auto x = static_cast<std::int64_t>(p % w), y = static_cast<std::int64_t>(p / w);
+        for (std::int64_t dy = -1; dy <= 1; ++dy)
+            for (std::int64_t dx = -1; dx <= 1; ++dx) {
+                const auto nx = x + dx, ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                const auto q = static_cast<std::uint32_t>(ny * w + nx);
+                if (!kept[q] && solid[q]) kept[q] = 1, todo.push_back(q);
+            }
+    }
+    // The rim.
+    for (int pass = 0; pass < 2; ++pass) {
+        auto grown = kept;
+        for (std::uint32_t y = 0; y < h; ++y)
+            for (std::uint32_t x = 0; x < w; ++x) {
+                if (!kept[std::size_t{y} * w + x]) continue;
+                if (x > 0) grown[std::size_t{y} * w + x - 1] = 1;
+                if (x + 1 < w) grown[std::size_t{y} * w + x + 1] = 1;
+                if (y > 0) grown[std::size_t{y - 1} * w + x] = 1;
+                if (y + 1 < h) grown[std::size_t{y + 1} * w + x] = 1;
+            }
+        kept = std::move(grown);
+    }
+    std::uint32_t x0 = w, y0 = h, x1 = 0, y1 = 0;
+    for (std::uint32_t y = 0; y < h; ++y)
+        for (std::uint32_t x = 0; x < w; ++x)
+            if (kept[std::size_t{y} * w + x] && solid[std::size_t{y} * w + x])
+                x0 = std::min(x0, x), y0 = std::min(y0, y), x1 = std::max(x1, x + 1), y1 = std::max(y1, y + 1);
+    for (auto& frame : frames)
+        for (std::size_t p = 0; p < kept.size(); ++p)
+            if (!kept[p]) std::fill_n(frame.rgba.data() + p * 4, 4, std::uint8_t{0});
+    if (x1 <= x0 || y1 <= y0) return {};
+    return {x0, y0, x1 - x0, y1 - y0};
 }
 } // namespace
 
@@ -99,11 +139,11 @@ bool Session::start(Inputs inputs) {
     bool began = false;
     try { began = in_.stage && in_.stage->begin(why); } catch (const std::exception& error) { why = error.what(); }
     if (!began) {
-        finish(why.empty() ? "The board on show could not be taken over." : why, true);
+        finish(why.empty() ? std::string("The ") + noun(in_.options.subject) + " on show could not be taken over." : why, true);
         return true;
     }
     std::lock_guard lock(mutex_);
-    progress_ = {Phase::capturing, 0, 0, "Turning the board...", {}};
+    progress_ = {Phase::capturing, 0, 0, std::string("Turning the ") + noun(in_.options.subject) + "...", {}};
     return true;
 }
 
@@ -142,7 +182,7 @@ bool Session::wants_frame() noexcept {
     // However it goes, a turnaround gives the game back within a minute.
     if (std::chrono::steady_clock::now() - started_ > std::chrono::seconds(60)) {
         try { in_.stage->end(); } catch (...) {}
-        finish("The turnaround took too long and was stopped. Is the Board screen open, with the board on show?", true);
+        finish("The turnaround took too long and was stopped. " + screen_hint(in_.options.subject), true);
         return false;
     }
     if (in_.stage->continuous()) return next_continuous();
@@ -151,7 +191,7 @@ bool Session::wants_frame() noexcept {
             in_.stage->pose(static_cast<double>(angle_) / in_.options.frames, light_);
         } catch (...) {
             try { in_.stage->end(); } catch (...) {}
-            finish("The board could not be turned.", true);
+            finish(std::string("The ") + noun(in_.options.subject) + " could not be turned.", true);
             return false;
         }
         posed_ = true;
@@ -169,7 +209,7 @@ void Session::take_frame(const PixelView& frame) noexcept {
     try {
         if (!frame.data || !frame.width || !frame.height) throw std::runtime_error("The game's picture could not be read.");
         if (area_.empty()) {
-            area_ = board_area(frame.width, frame.height);
+            area_ = subject_area(in_.options.subject, frame.width, frame.height);
             if (area_.empty()) throw std::runtime_error("The screen is too small.");
             work_scale_ = area_.height > 1000 ? 2 : 1;
         }
@@ -314,8 +354,8 @@ void Session::take_continuous(const PixelView& frame) {
     if (period_ <= 0) {
         const auto peak = difference_.empty() ? 0.0f : *std::max_element(difference_.begin(), difference_.end());
         if (taken_ > 240 && peak <= moving)
-            throw std::runtime_error("The board did not turn. Is the Board screen open, with the board on show?");
-        if (taken_ >= longest_turn) throw std::runtime_error("The board did not come all the way round.");
+            throw std::runtime_error(std::string("The ") + noun(in_.options.subject) + " did not turn. " + screen_hint(in_.options.subject));
+        if (taken_ >= longest_turn) throw std::runtime_error(std::string("The ") + noun(in_.options.subject) + " did not come all the way round.");
         return;
     }
     in_.stage->end();
@@ -345,12 +385,11 @@ void Session::encode() noexcept {
         }
         const auto& o = in_.options;
         
-        const auto through = turned_through(frames);
-        if (through.empty()) throw std::runtime_error("No board was found on screen.");
+        const auto through = keep_turning(frames);
+        if (through.empty()) throw std::runtime_error(std::string("No ") + noun(o.subject) + " was found on screen.");
         const auto margin = std::max(through.width, through.height) / 25 + 2;
-        // (not clipped to the area: the board is taller than the area is wide)
         std::optional<Image> card;
-        if (o.parts && !in_.parts.empty()) card = render_parts_panel("Board", in_.parts, o.size, in_.fonts);
+        if (o.parts && !in_.parts.empty()) card = render_parts_panel(o.subject == Subject::skater ? "Outfit" : "Board", in_.parts, o.size, in_.fonts);
         Animation animation;
         animation.fps = o.fps;
         for (auto& frame : frames) {
@@ -374,7 +413,7 @@ void Session::encode() noexcept {
             else if ((c == ' ' || c == '-' || c == '_') && !name.empty() && name.back() != '-') name += '-';
         }
         while (!name.empty() && name.back() == '-') name.pop_back();
-        if (name.empty()) name = "board";
+        if (name.empty()) name = noun(o.subject);
         const auto stamp = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         std::filesystem::create_directories(in_.folder);
         const auto u8name = name + "-" + std::to_string(stamp) + "." + extension(o.format);
