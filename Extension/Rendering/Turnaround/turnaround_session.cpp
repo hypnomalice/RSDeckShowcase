@@ -21,11 +21,12 @@ namespace {
 // Where the game shows what is turned, as fractions of its menu frame (the whole width up to 21:9, a
 // 21:9 frame in the middle of anything wider). Measured from the game at 2000x837 (2026-10-20):
 //  - the Board screen's board: right of the item card, below the search bar, left of Back;
-//  - the Skaters screen's skater: between the Apparel and Tattoos columns, below the tab icons.
-//    The page numbers under the skater's feet are in it, and are cleared as UI (keep_turning).
+//  - the Skaters screen's skater: between the Apparel and Tattoos columns, below the tab icons,
+//    down to the floor the feet stand on (the camera is fixed): not the page numbers below them,
+//    which the skater's reflection shows through, nor the reflection itself.
 struct Area { float left, right, top, bottom; };
 constexpr Area board_fractions{0.655f, 0.86f, 0.185f, 0.985f};
-constexpr Area skater_fractions{0.27f, 0.735f, 0.14f, 0.985f};
+constexpr Area skater_fractions{0.27f, 0.735f, 0.14f, 0.907f};
 
 Rect subject_area(Subject subject, std::uint32_t width, std::uint32_t height) {
     const auto& a = subject == Subject::skater ? skater_fractions : board_fractions;
@@ -97,22 +98,49 @@ Rect keep_turning(std::vector<Image>& frames, const std::vector<std::uint8_t>& f
             for (std::size_t c = 0; c < 4; ++c) change = std::max(change, std::abs(frame.rgba[i + c] - first.rgba[i + c]));
             if (change > 24) moved[p] = 1;
         }
-    // Flood from what moved over what is solid.
-    std::vector<std::uint8_t> kept(moved.size());
+    // Flood from what moved over what is solid, one piece at a time: each piece's size (in pixels
+    // that moved) and bounds.
+    std::vector<std::uint32_t> piece(moved.size()); // 0: none, else the piece's number + 1
+    struct Piece { std::size_t moved{}; std::uint32_t x0{}, y0{}, x1{}, y1{}; };
+    std::vector<Piece> pieces;
     std::vector<std::uint32_t> todo;
-    for (std::uint32_t p = 0; p < moved.size(); ++p)
-        if (moved[p]) kept[p] = 1, todo.push_back(p);
-    while (!todo.empty()) {
-        const auto p = todo.back();
-        todo.pop_back();
-        const auto x = static_cast<std::int64_t>(p % w), y = static_cast<std::int64_t>(p / w);
-        for (std::int64_t dy = -1; dy <= 1; ++dy)
-            for (std::int64_t dx = -1; dx <= 1; ++dx) {
-                const auto nx = x + dx, ny = y + dy;
-                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-                const auto q = static_cast<std::uint32_t>(ny * w + nx);
-                if (!kept[q] && solid[q]) kept[q] = 1, todo.push_back(q);
-            }
+    for (std::uint32_t start = 0; start < moved.size(); ++start) {
+        if (!moved[start] || piece[start]) continue;
+        pieces.push_back({0, w, h, 0, 0});
+        const auto label = static_cast<std::uint32_t>(pieces.size());
+        auto& info = pieces.back();
+        piece[start] = label;
+        todo.push_back(start);
+        while (!todo.empty()) {
+            const auto p = todo.back();
+            todo.pop_back();
+            const auto x = static_cast<std::int64_t>(p % w), y = static_cast<std::int64_t>(p / w);
+            info.moved += moved[p];
+            info.x0 = std::min(info.x0, static_cast<std::uint32_t>(x)), info.x1 = std::max(info.x1, static_cast<std::uint32_t>(x + 1));
+            info.y0 = std::min(info.y0, static_cast<std::uint32_t>(y)), info.y1 = std::max(info.y1, static_cast<std::uint32_t>(y + 1));
+            for (std::int64_t dy = -1; dy <= 1; ++dy)
+                for (std::int64_t dx = -1; dx <= 1; ++dx) {
+                    const auto nx = x + dx, ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                    const auto q = static_cast<std::uint32_t>(ny * w + nx);
+                    if (!piece[q] && (solid[q] || moved[q])) piece[q] = label, todo.push_back(q);
+                }
+        }
+    }
+    // What turns is the biggest piece, with any piece centred within its bounds (a board held
+    // apart from the hand); pieces elsewhere are the scene's own movement (a light, its haze).
+    std::vector<std::uint8_t> kept(moved.size());
+    if (!pieces.empty()) {
+        const auto biggest = static_cast<std::size_t>(std::max_element(pieces.begin(), pieces.end(), [](const Piece& l, const Piece& r) {
+                              return l.moved < r.moved;
+                          }) - pieces.begin());
+        const auto& big = pieces[biggest];
+        std::vector<std::uint8_t> keep(pieces.size());
+        for (std::size_t i = 0; i < pieces.size(); ++i) {
+            const auto cx = (pieces[i].x0 + pieces[i].x1) / 2, cy = (pieces[i].y0 + pieces[i].y1) / 2;
+            keep[i] = i == biggest || (cx >= big.x0 && cx < big.x1 && cy >= big.y0 && cy < big.y1);
+        }
+        for (std::size_t p = 0; p < kept.size(); ++p) kept[p] = piece[p] && keep[piece[p] - 1];
     }
     // The rim (of what changes: never a still prompt touching the edge).
     for (int pass = 0; pass < 2; ++pass) {

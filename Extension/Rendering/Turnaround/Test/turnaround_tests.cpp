@@ -338,6 +338,8 @@ public:
                 float rgb[3] = {bg, bg, bg + 4};
                 if (x > 860 && x < 900 && y > 140 && y < 170) rgb[0] = rgb[1] = rgb[2] = 200; // UI that never moves
                 if (skater && x > 560 && x < 720 && y > 648 && y < 668) rgb[0] = rgb[1] = rgb[2] = 230; // the page numbers, just under the feet
+                if (skater && x > 380 && x < 440 && y > 120 && y < 170) // a light in the scene that flickers
+                    rgb[0] = rgb[1] = rgb[2] = 90.0f + 50.0f * std::sin(static_cast<float>(drawn) * 0.7f);
                 // The Board screen's "Equip" prompt under the board, its leader line running in to it.
                 if (!skater && ((x > 990 && x < 1060 && y > 640 && y < 664) || (x > 900 && x < 990 && y >= 641 && y <= 643)))
                     rgb[0] = rgb[1] = rgb[2] = 210;
