@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // Favorites, search and filters for the skater's item grids (Apparel, Accessories, Board, Tattoos,
 // Gestures, Appearance). The grids stay the game's own: their tile rows are reordered and filtered in
@@ -16,6 +17,7 @@ struct View {
     Filter filter{};
     unsigned shown{}, total{}, favorites{}; // of the grid that has the focus
     std::string focused_title, focused_key, focused_category;
+    std::vector<std::string> grid_keys;     // every item of the grid that has the focus
     bool focused_favorite{};
 };
 View view();

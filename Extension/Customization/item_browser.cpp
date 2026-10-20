@@ -826,6 +826,8 @@ void update(std::uintptr_t base) noexcept {
             next.shown = static_cast<unsigned>(active->shown.size()) - (std::min)(blanks, static_cast<unsigned>(active->shown.size()));
             next.total = static_cast<unsigned>(active->native.size()) - blanks;
             for (const auto& item : active->native) next.favorites += s.favorites.keys.contains(item.key);
+            for (const auto& item : active->native)
+                if (!item.key.empty()) next.grid_keys.push_back(item.key);
         }
         if (focused) {
             next.focused_title = focused->title;

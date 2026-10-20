@@ -94,11 +94,23 @@ std::vector<Part> worn_board() {
     std::vector<profile_runtime::CosmeticNativeRecipe> native;
     if (!profile_runtime::read_cosmetic_recipes(reinterpret_cast<const void*>(begin + static_cast<std::uintptr_t>(preset) * 0x48), loadout, native))
         return parts;
+    // The Board screen shows the item highlighted in the open tab, not the one worn: that part is the
+    // highlighted one. Which part the open tab is for is the one whose worn item is in its grid.
+    const auto browsing = item_browser::view();
+    const auto in_open_grid = [&](const std::string& asset) {
+        return browsing.open && !browsing.focused_key.empty() &&
+               std::find(browsing.grid_keys.begin(), browsing.grid_keys.end(), asset) != browsing.grid_keys.end();
+    };
     for (const auto& recipe : loadout.recipes) {
         if (recipe.template_key != board_template) continue;
         for (const auto& wanted : board_slots)
-            for (const auto& item : recipe.items)
-                if (item.slot == wanted.slot && !item.asset.empty()) parts.push_back({wanted.label, item_title(item.asset)});
+            for (const auto& item : recipe.items) {
+                if (item.slot != wanted.slot || item.asset.empty()) continue;
+                if (in_open_grid(item.asset))
+                    parts.push_back({wanted.label, browsing.focused_title.empty() ? item_title(browsing.focused_key) : browsing.focused_title});
+                else
+                    parts.push_back({wanted.label, item_title(item.asset)});
+            }
         break;
     }
     logging::log(logging::Level::info, logging::Channel::customization, "Turnaround: preset {} of {}, {} board part(s).", preset, count, parts.size());
