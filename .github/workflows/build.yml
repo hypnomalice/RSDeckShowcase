@@ -17,10 +17,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Fetch the Spotify helper's crates
+        # Runtime.cmake looks for one of them while configuring, before cargo would fetch it.
+        working-directory: SpotifyHelper
+        run: cargo fetch
+
       - name: Configure
-        # Without the Spotify Connect helper: it needs a Rust build of its own.
         run: |
-          cmake --preset vs2022-x64 -DDINGOSDK_BUILD_TURNAROUND_TESTS=ON -DDINGOSDK_CARGO=DINGOSDK_CARGO-NOTFOUND 2>&1 | Tee-Object -FilePath configure.log
+          cmake --preset vs2022-x64 -DDINGOSDK_BUILD_TURNAROUND_TESTS=ON 2>&1 | Tee-Object -FilePath configure.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Build
