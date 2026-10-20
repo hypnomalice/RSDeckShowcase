@@ -45,7 +45,8 @@ add_library(dingosdk_turnaround STATIC
     Extension/Rendering/Turnaround/turnaround_png.cpp
     Extension/Rendering/Turnaround/turnaround_gif.cpp
     Extension/Rendering/Turnaround/turnaround_vp8.cpp
-    Extension/Rendering/Turnaround/turnaround_webm.cpp)
+    Extension/Rendering/Turnaround/turnaround_webm.cpp
+    Extension/Rendering/Turnaround/turnaround_session.cpp)
 target_include_directories(dingosdk_turnaround PUBLIC "${PROJECT_SOURCE_DIR}")
 # stb_truetype, as shipped with Dear ImGui.
 target_include_directories(dingosdk_turnaround SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/External/imgui")

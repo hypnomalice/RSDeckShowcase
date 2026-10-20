@@ -3,21 +3,24 @@
 
 namespace dingosdk::turnaround {
 Backgrounds measure_backgrounds(const PixelView& dark, const PixelView& light, Rect area) noexcept {
+    // The median of each channel along the edge: a stray UI element on it does not shift it.
     Backgrounds out;
     if (area.empty()) return out;
-    double sums[2][3]{};
-    std::uint64_t count = 0;
+    std::array<std::array<std::uint32_t, 256>, 6> counts{};
+    std::uint64_t total = 0;
     const auto add = [&](std::uint32_t x, std::uint32_t y) {
         const auto d = dark.rgb(x, y), l = light.rgb(x, y);
-        for (int c = 0; c < 3; ++c) sums[0][c] += d[c], sums[1][c] += l[c];
-        ++count;
+        for (std::size_t c = 0; c < 3; ++c) ++counts[c][d[c]], ++counts[3 + c][l[c]];
+        ++total;
     };
     const auto right = area.x + area.width - 1, bottom = area.y + area.height - 1;
     for (auto x = area.x; x <= right; ++x) add(x, area.y), add(x, bottom);
     for (auto y = area.y + 1; y < bottom; ++y) add(area.x, y), add(right, y);
-    for (int c = 0; c < 3; ++c) {
-        out.dark[c] = static_cast<float>(sums[0][c] / static_cast<double>(count));
-        out.light[c] = static_cast<float>(sums[1][c] / static_cast<double>(count));
+    for (std::size_t k = 0; k < 6; ++k) {
+        std::uint64_t seen = 0;
+        std::size_t value = 0;
+        while (value < 255 && (seen += counts[k][value]) * 2 < total) ++value;
+        (k < 3 ? out.dark : out.light)[k % 3] = static_cast<float>(value);
     }
     return out;
 }

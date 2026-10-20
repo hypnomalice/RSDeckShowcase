@@ -1,6 +1,7 @@
 #include "Extension/Rendering/Turnaround/turnaround_encode.h"
 #include "Extension/Rendering/Turnaround/turnaround_matte.h"
 #include "Extension/Rendering/Turnaround/turnaround_panel.h"
+#include "Extension/Rendering/Turnaround/turnaround_session.h"
 
 #include <cmath>
 #include <cstdio>
@@ -11,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <string>
+#include <thread>
 
 // Turnaround pictures without the game: matting, resizing, the parts card and the file formats.
 // Run with the folder of the menu fonts (External/fonts) as the first argument to test the card too,
@@ -252,14 +254,95 @@ void test_panel(const std::filesystem::path& fonts, const char* out) {
 }
 } // namespace
 
+// A stand-in for the game: a 1280x720 frame with a board that turns on the right of the menu, a
+// background it can make dark or light (graded, as the game's post-processing does), and a piece
+// of UI that never moves.
+class FakeStage : public Stage {
+public:
+    explicit FakeStage(bool backgrounds) : backgrounds_(backgrounds) {}
+    bool begin(std::string&) override { began = true; return true; }
+    void pose(double t, bool l) override { turn = t, light = l; }
+    bool changes_background() const override { return backgrounds_; }
+    void end() override { ended = true; }
+    std::vector<std::uint8_t> frame() const {
+        constexpr std::uint32_t w = 1280, h = 720;
+        std::vector<std::uint8_t> out(std::size_t{w} * h * 4);
+        const float cx = 1280 * 0.76f, cy = 720 * 0.57f;
+        const float half_w = 60 * std::abs(std::cos(static_cast<float>(turn) * 6.2831853f)) + 3, half_h = 230;
+        const bool back = std::cos(static_cast<float>(turn) * 6.2831853f) < 0;
+        for (std::uint32_t y = 0; y < h; ++y)
+            for (std::uint32_t x = 0; x < w; ++x) {
+                const float fx = static_cast<float>(x) + 0.5f, fy = static_cast<float>(y) + 0.5f;
+                float bg = light ? 225.0f : 28.0f + 10.0f * fy / h; // the dark one with a slight vignette
+                float rgb[3] = {bg, bg, bg + 4};
+                if (x > 860 && x < 900 && y > 140 && y < 170) rgb[0] = rgb[1] = rgb[2] = 200; // UI that never moves
+                const float dx = std::abs(fx - cx) - half_w, dy = std::abs(fy - cy) - half_h;
+                const float cover = std::clamp(0.5f - std::max(dx, dy), 0.0f, 1.0f);
+                const float deck[3] = {back ? 20.0f : 40.0f, back ? 20.0f : 150.0f + 80 * fy / h, back ? 22.0f : 220.0f};
+                for (int c = 0; c < 3; ++c) rgb[c] = deck[c] * cover + rgb[c] * (1 - cover);
+                auto* p = out.data() + (std::size_t{y} * w + x) * 4;
+                for (int c = 0; c < 3; ++c) p[2 - c] = static_cast<std::uint8_t>(std::clamp(rgb[c] * 0.92f + 5, 0.0f, 255.0f));
+                p[3] = 255;
+            }
+        return out;
+    }
+    double turn{};
+    bool light{}, began{}, ended{};
+private:
+    bool backgrounds_;
+};
+
+void test_session(const std::filesystem::path& fonts, bool backgrounds, Format format, bool transparent) {
+    const auto load = [&](const char* name) {
+        std::ifstream in(fonts / name, std::ios::binary);
+        return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(in), {});
+    };
+    static const auto brush = load("PermanentMarker-Regular.ttf"), heading = load("Montserrat-ExtraBold.ttf"),
+                      body = load("Montserrat-SemiBold.ttf");
+    auto stage = std::make_shared<FakeStage>(backgrounds);
+    Session session;
+    Session::Inputs in;
+    in.options.format = format;
+    in.options.transparent = transparent;
+    in.options.frames = 16;
+    in.options.size = 256;
+    in.options.settle = 2;
+    in.title = "Test Deck: \"blue\"";
+    in.parts = {{"Deck", "Test Deck"}, {"Wheels", "Round"}};
+    in.fonts = {heading, body, brush};
+    in.folder = std::filesystem::temp_directory_path() / "turnaround_tests";
+    in.stage = stage;
+    expect(session.start(in), "a session starts");
+    expect(!session.start(in), "a second session waits for the first");
+    for (int i = 0; i < 2000 && session.progress().phase == Phase::capturing; ++i) {
+        if (!session.wants_frame()) continue;
+        const auto pixels = stage->frame();
+        session.take_frame({pixels.data(), 1280, 720, 1280 * 4, true});
+    }
+    for (int i = 0; i < 600 && session.busy(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const auto progress = session.progress();
+    if (progress.phase != Phase::done) std::printf("session: %s\n", progress.message.c_str());
+    expect(progress.phase == Phase::done, "a session saves its turnaround");
+    expect(stage->began && stage->ended, "the stage is taken over and given back");
+    std::error_code error;
+    expect(std::filesystem::file_size(progress.file, error) > 1000, "the turnaround file is written");
+    const auto name = progress.file.filename().string();
+    expect(name.starts_with("Test-Deck-blue-") && name.ends_with(extension(format)), "the file is named after the deck");
+}
+
 int main(int argc, char** argv) {
     test_matte();
     test_geometry();
     test_png();
     test_gif();
     test_webm();
-    if (argc > 1) test_panel(argv[1], argc > 2 ? argv[2] : nullptr);
-    else std::printf("skipped: the parts card (pass the fonts folder)\n");
+    if (argc > 1) {
+        test_panel(argv[1], argc > 2 ? argv[2] : nullptr);
+        test_session(argv[1], true, Format::apng, true);
+        test_session(argv[1], false, Format::gif, true);
+        test_session(argv[1], true, Format::webm, false);
+    }
+    else std::printf("skipped: the parts card and sessions (pass the fonts folder)\n");
     if (!failures) std::printf("turnaround tests passed\n");
     return failures ? 1 : 0;
 }

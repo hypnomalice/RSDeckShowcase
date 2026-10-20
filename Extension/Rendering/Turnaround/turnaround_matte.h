@@ -13,7 +13,7 @@ namespace dingosdk::turnaround {
 struct Backgrounds {
     std::array<float, 3> dark{}, light{}; // the empty background's colour in each capture, 0..255
 };
-// The average colour of the pixels along the edge of `area` in each capture: the background, as long
+// The typical (median) colour of the pixels along the edge of `area` in each capture: the background, as long
 // as the board is not touching the edge of the area.
 Backgrounds measure_backgrounds(const PixelView& dark, const PixelView& light, Rect area) noexcept;
 // The board cut out of `area`: straight RGBA, colour taken from the dark capture.
