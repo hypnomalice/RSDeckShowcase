@@ -28,6 +28,8 @@ struct Options {
     std::uint32_t size{512};   // the board's square, in pixels; the parts card adds to the width
     bool parts{true};          // the "parts used" card beside the board
     std::uint32_t settle{6};   // frames to wait after each change, for the game's temporal smoothing
+    float spin{0.5f};          // how hard the stick is pushed to turn the board (-1..1)
+    std::uint8_t spin_axis{2}; // which stick axis: 0 left x, 1 left y, 2 right x, 3 right y
 };
 
 // What the game does for a turnaround. Called on the render thread; an implementation that must act
@@ -43,6 +45,9 @@ public:
     virtual bool changes_background() const = 0;
     // Gives it back as it was.
     virtual void end() = 0;
+    // A stage that turns the board on its own once begun (as the player's stick would), at a speed
+    // it does not know: every frame is taken, and the session finds where the turn comes round.
+    virtual bool continuous() const { return false; }
 };
 
 enum class Phase { idle, capturing, encoding, done, failed };
@@ -89,5 +94,13 @@ private:
     std::vector<std::uint8_t> dark_; // the dark capture of this angle, waiting for its light one
     std::uint32_t dark_pitch_{};
     std::vector<Image> captured_;
+    // Continuous stages: each taken frame's place in the turn, how unlike the first it looks, a
+    // small grey thumbnail of the first, and which frames are kept (every `stride`th).
+    std::vector<double> kept_at_;
+    std::vector<float> difference_;
+    std::vector<float> first_thumbnail_;
+    std::uint32_t taken_{}, stride_{1}, warmup_{};
+    double period_{};
+    void take_continuous(const PixelView& frame);
 };
 } // namespace dingosdk::turnaround

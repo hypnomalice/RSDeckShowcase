@@ -2,7 +2,9 @@
 #include "turnaround.h"
 #include "turnaround_session.h"
 #include "turnaround_research.h"
+#include <algorithm>
 #include <charconv>
+#include <cstdlib>
 #include <sstream>
 
 namespace dingosdk::console {
@@ -21,7 +23,7 @@ void register_turnaround_commands(Commands& registry) {
     arguments.rest = true;
     arguments.complete = [](const Model&, auto) { return std::vector<std::string>{"export", "cancel", "grab", "boards", "parts", "stick"}; };
     auto command = action("turnaround",
-                          "Board turnarounds: export [gif|apng|webm] [clear|matte] [frames] [size] [parts|noparts] "
+                          "Board turnarounds: export [gif|apng|webm] [clear|matte] [frames] [size] [parts|noparts] [spin=0.5] [axis=rx|ry|lx|ly] "
                           "(on the Board screen), cancel. Research aids: grab (save this frame to Turnarounds\\), boards [seconds] "
                           "(find the board on show; spin it while this watches), parts (the items worn now), stick <x> <y> [seconds] (push the right "
                           "stick, -1..1). Answers go to the log.",
@@ -40,6 +42,11 @@ void register_turnaround_commands(Commands& registry) {
                 else if (word == "matte") o.transparent = false;
                 else if (word == "parts") o.parts = true;
                 else if (word == "noparts") o.parts = false;
+                else if (word.starts_with("spin=")) o.spin = static_cast<float>(std::clamp(std::strtod(word.c_str() + 5, nullptr), -1.0, 1.0));
+                else if (word.starts_with("axis=")) {
+                    const auto axis = word.substr(5);
+                    o.spin_axis = axis == "lx" ? 0 : axis == "ly" ? 1 : axis == "ry" ? 3 : 2;
+                }
                 else if (std::uint32_t n{}; std::from_chars(word.data(), word.data() + word.size(), n).ec == std::errc{} && n) {
                     if (n <= 240) o.frames = n;
                     else o.size = n;

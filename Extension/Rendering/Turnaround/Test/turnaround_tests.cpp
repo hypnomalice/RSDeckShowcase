@@ -259,12 +259,18 @@ void test_panel(const std::filesystem::path& fonts, const char* out) {
 // of UI that never moves.
 class FakeStage : public Stage {
 public:
-    explicit FakeStage(bool backgrounds) : backgrounds_(backgrounds) {}
+    explicit FakeStage(bool backgrounds, double spin = 0) : backgrounds_(backgrounds), spin_(spin) {}
     bool begin(std::string&) override { began = true; return true; }
     void pose(double t, bool l) override { turn = t, light = l; }
     bool changes_background() const override { return backgrounds_; }
+    bool continuous() const override { return spin_ != 0; }
     void end() override { ended = true; }
-    std::vector<std::uint8_t> frame() const {
+    // A turning stage moves on by `spin` of a turn every frame drawn.
+    std::vector<std::uint8_t> frame() {
+        if (spin_ != 0 && !ended) turn += spin_;
+        return draw();
+    }
+    std::vector<std::uint8_t> draw() const {
         constexpr std::uint32_t w = 1280, h = 720;
         std::vector<std::uint8_t> out(std::size_t{w} * h * 4);
         const float cx = 1280 * 0.76f, cy = 720 * 0.57f;
@@ -290,16 +296,17 @@ public:
     bool light{}, began{}, ended{};
 private:
     bool backgrounds_;
+    double spin_;
 };
 
-void test_session(const std::filesystem::path& fonts, bool backgrounds, Format format, bool transparent) {
+void test_session(const std::filesystem::path& fonts, bool backgrounds, Format format, bool transparent, double spin = 0) {
     const auto load = [&](const char* name) {
         std::ifstream in(fonts / name, std::ios::binary);
         return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(in), {});
     };
     static const auto brush = load("PermanentMarker-Regular.ttf"), heading = load("Montserrat-ExtraBold.ttf"),
                       body = load("Montserrat-SemiBold.ttf");
-    auto stage = std::make_shared<FakeStage>(backgrounds);
+    auto stage = std::make_shared<FakeStage>(backgrounds, spin);
     Session session;
     Session::Inputs in;
     in.options.format = format;
@@ -314,9 +321,11 @@ void test_session(const std::filesystem::path& fonts, bool backgrounds, Format f
     in.stage = stage;
     expect(session.start(in), "a session starts");
     expect(!session.start(in), "a second session waits for the first");
-    for (int i = 0; i < 2000 && session.progress().phase == Phase::capturing; ++i) {
-        if (!session.wants_frame()) continue;
+    for (int i = 0; i < 4000 && session.progress().phase == Phase::capturing; ++i) {
+        // A turning stage turns whether or not the frame is taken, as the game does.
+        const bool wanted = session.wants_frame();
         const auto pixels = stage->frame();
+        if (!wanted) continue;
         session.take_frame({pixels.data(), 1280, 720, 1280 * 4, true});
     }
     for (int i = 0; i < 600 && session.busy(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -341,6 +350,7 @@ int main(int argc, char** argv) {
         test_session(argv[1], true, Format::apng, true);
         test_session(argv[1], false, Format::gif, true);
         test_session(argv[1], true, Format::webm, false);
+        test_session(argv[1], false, Format::apng, true, 1.0 / 137.3); // turned by the stick, at a speed it must find
     }
     else std::printf("skipped: the parts card and sessions (pass the fonts folder)\n");
     if (!failures) std::printf("turnaround tests passed\n");
