@@ -1,10 +1,15 @@
 # Builds ReSkate.dll and ReSkateLauncher.exe on every push, runs the board turnaround tests, and
 # keeps the two files as a download on the run's page (Actions -> the run -> Artifacts).
+# A failing step repeats its errors as annotations, which show on the run's summary page.
 name: Build
 
 on:
   push:
   workflow_dispatch:
+
+defaults:
+  run:
+    shell: pwsh
 
 jobs:
   windows:
@@ -14,13 +19,30 @@ jobs:
 
       - name: Configure
         # Without the Spotify Connect helper: it needs a Rust build of its own.
-        run: cmake --preset vs2022-x64 -DDINGOSDK_BUILD_TURNAROUND_TESTS=ON -DDINGOSDK_CARGO=DINGOSDK_CARGO-NOTFOUND
+        run: |
+          cmake --preset vs2022-x64 -DDINGOSDK_BUILD_TURNAROUND_TESTS=ON -DDINGOSDK_CARGO=DINGOSDK_CARGO-NOTFOUND 2>&1 | Tee-Object -FilePath configure.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Build
-        run: cmake --build --preset release --parallel 4 --target dingosdk_runtime dingosdk_launcher dingosdk_turnaround_tests
+        run: |
+          cmake --build --preset release --parallel 4 --target dingosdk_runtime dingosdk_launcher dingosdk_turnaround_tests -- /clp:ErrorsOnly 2>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Test
-        run: ctest --test-dir build/vs2022-x64 -C Release -R turnaround --output-on-failure
+        run: |
+          ctest --test-dir build/vs2022-x64 -C Release -R turnaround --output-on-failure 2>&1 | Tee-Object -FilePath test.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Report errors
+        if: failure()
+        run: |
+          foreach ($log in 'configure.log', 'build.log', 'test.log') {
+            if (-not (Test-Path $log)) { continue }
+            $lines = Get-Content $log | Where-Object { $_ -match 'error|FAIL|CMake Error|fatal' } | Select-Object -Unique -First 40
+            if (-not $lines) { $lines = Get-Content $log -Tail 40 }
+            $text = ($lines -join "`n") -replace '%', '%25' -replace "`r", '' -replace "`n", '%0A'
+            Write-Output "::error title=$log::$text"
+          }
 
       - uses: actions/upload-artifact@v4
         with:
