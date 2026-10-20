@@ -38,7 +38,7 @@ std::filesystem::path output_folder() {
         if (length < path.size()) { path.resize(length); break; }
         path.resize(path.size() * 2);
     }
-    return std::filesystem::path(path).parent_path() / L"Turnarounds";
+    return std::filesystem::path(path).parent_path() / L"Fit Checks";
 }
 
 std::string stamp() {

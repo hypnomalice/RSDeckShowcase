@@ -60,8 +60,8 @@ void register_turnaround_commands(Commands& registry) {
     arguments.rest = true;
     arguments.complete = [](const Model&, auto) { return std::vector<std::string>{"export", "set", "open", "cancel", "grab", "boards", "parts", "stick"}; };
     auto command = action("turnaround",
-                          "Board and skater turnarounds (V on the Board or Skaters screen): export [skater] [gif|apng|webm] [clear|matte] [frames] [size] [parts|noparts] [key=value], "
-                          "set <key> <value> (format, background, matte, parts, speed, direction, seconds, fps, size; kept), open (the folder), cancel. Research aids: grab (save this frame to Turnarounds\\), boards [seconds] "
+                          "Fit Check, spinning pictures of the board or skater (V on the Board or Skaters screen): export [skater] [gif|apng|webm] [clear|matte] [frames] [size] [parts|noparts] [key=value], "
+                          "set <key> <value> (format, background, matte, parts, speed, direction, seconds, fps, size; kept), open (the folder), cancel. Research aids: grab (save this frame to Fit Checks\\), boards [seconds] "
                           "(find the board on show; spin it while this watches), parts (the items worn now), stick <x> <y> [seconds] (push the right "
                           "stick, -1..1). Answers go to the log.",
                           Group::console, {std::move(arguments)});
@@ -113,13 +113,13 @@ void register_turnaround_commands(Commands& registry) {
             }
         } else if (verb == "open") {
             turnaround::open_folder();
-            out("Opened the Turnarounds folder.");
+            out("Opened the Fit Checks folder.");
         } else if (verb == "cancel") {
             turnaround::cancel_export();
-            out(turnaround::exporting() ? "Cancelling the turnaround." : "No turnaround is being made.");
+            out(turnaround::exporting() ? "Cancelling the fit check." : "No fit check is being made.");
         } else if (verb == "grab") {
             turnaround::research::request_grab();
-            out("The next frame will be saved in the Turnarounds folder beside Skate.exe.");
+            out("The next frame will be saved in the Fit Checks folder beside Skate.exe.");
         } else if (verb == "boards") {
             out(turnaround::research::request_boards(number(words, 6)));
         } else if (verb == "parts") {
@@ -131,6 +131,8 @@ void register_turnaround_commands(Commands& registry) {
             out("turnaround export [...] | set <key> <value> | open | cancel | grab | boards [seconds] | parts | stick <x> <y> [seconds]");
         }
     };
+    // The mod is called Fit Check: `fitcheck` does the same (`turnaround` stays, as the mod queues it).
+    command.aliases.push_back("fitcheck");
     registry.add(std::move(command));
 }
 } // namespace dingosdk::console

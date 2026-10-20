@@ -197,10 +197,10 @@ void report(const Progress& now) {
     if (now.phase == last && run == last_run) return;
     last = now.phase, last_run = run;
     switch (now.phase) {
-    case Phase::capturing: overlay::notify(overlay::NoticeLevel::info, "Turnaround", now.message + " Hands off for a few seconds."); break;
-    case Phase::encoding: overlay::notify(overlay::NoticeLevel::info, "Turnaround", "Saving..."); break;
-    case Phase::done: overlay::notify(overlay::NoticeLevel::info, "Turnaround saved", now.message); break;
-    case Phase::failed: overlay::notify(overlay::NoticeLevel::warning, "Turnaround", now.message); break;
+    case Phase::capturing: overlay::notify(overlay::NoticeLevel::info, "Fit Check", now.message + " Hands off for a few seconds."); break;
+    case Phase::encoding: overlay::notify(overlay::NoticeLevel::info, "Fit Check", "Saving..."); break;
+    case Phase::done: overlay::notify(overlay::NoticeLevel::info, "Fit check saved", now.message); break;
+    case Phase::failed: overlay::notify(overlay::NoticeLevel::warning, "Fit Check", now.message); break;
     default: break;
     }
     logging::log(now.phase == Phase::failed ? logging::Level::warning : logging::Level::info, logging::Channel::graphics,
@@ -226,9 +226,9 @@ bool frame_grab_banner(char* text, std::size_t size, bool* recording) noexcept {
         const auto progress = session().progress();
         std::string line;
         if (progress.phase == Phase::capturing)
-            line = progress.step ? std::format("RECORDING TURNAROUND  {} frames  -  V to stop", progress.step)
-                                 : std::string("RECORDING TURNAROUND  -  hands off  -  V to stop");
-        else if (progress.phase == Phase::encoding) line = "SAVING TURNAROUND...";
+            line = progress.step ? std::format("RECORDING FIT CHECK  {} frames  -  V to stop", progress.step)
+                                 : std::string("RECORDING FIT CHECK  -  hands off  -  V to stop");
+        else if (progress.phase == Phase::encoding) line = "SAVING FIT CHECK...";
         else return false;
         *recording = progress.phase == Phase::capturing;
         std::snprintf(text, size, "%s", line.c_str());
@@ -322,7 +322,7 @@ std::string apply(Options& o, std::string_view key, std::string_view value) {
         return std::format("Size: {} px.", *n);
     }
     if (key == "fps") {
-        const auto n = number(5, 50);
+        const auto n = number(5, 60);
         if (!n) return {};
         o.fps = static_cast<std::uint32_t>(*n);
         return std::format("{} frames a second.", *n);
@@ -373,7 +373,7 @@ std::string set_option(std::string_view key, std::string_view value) {
     auto& o = options();
     auto said = apply(o, key, value);
     if (said.empty()) return "turnaround set format gif|apng|webm | background clear|matte | matte #rrggbb | parts on|off | "
-                             "speed 5-100 | direction left|right | seconds 1-12 | fps 5-50 | size 64-2048";
+                             "speed 5-100 | direction left|right | seconds 1-12 | fps 5-60 | size 64-2048";
     try { save(o); } catch (...) {}
     return said;
 }
@@ -403,19 +403,23 @@ void queue_console(const char* command) noexcept {
 }
 
 void open_folder() {
-    const auto folder = game_folder() / L"Turnarounds";
+    const auto folder = game_folder() / L"Fit Checks";
     std::error_code error;
     std::filesystem::create_directories(folder, error);
     ShellExecuteW(nullptr, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 std::string start_export(Subject subject) {
-    if (session().busy()) return "A turnaround is already being made.";
+    if (session().busy()) return "A fit check is already being made.";
     try {
         Session::Inputs in;
         in.options = current_options();
         in.options.subject = subject;
-        in.options.frames = static_cast<std::uint32_t>(std::clamp(std::lround(in.options.seconds * static_cast<float>(in.options.fps)), 8L, 240L));
+        // A GIF's frame times are in hundredths of a second, and players slow anything under two to a
+        // tenth: 50 a second is the most a GIF plays at.
+        if (in.options.format == Format::gif) in.options.fps = std::min<std::uint32_t>(in.options.fps, 50);
+        in.options.frames = static_cast<std::uint32_t>(
+            std::clamp(std::lround(in.options.seconds * static_cast<float>(in.options.fps)), 8L, static_cast<long>(most_frames)));
         if (subject == Subject::skater) {
             in.parts = worn_outfit();
             in.title = "skater";
@@ -426,16 +430,16 @@ std::string start_export(Subject subject) {
         }
         in.fonts = {built_in(L"FONT_HEADING"), built_in(L"FONT_BODY"), built_in(L"FONT_BRUSH")};
         if (in.fonts.heading.empty() || in.fonts.body.empty() || in.fonts.brush.empty()) in.options.parts = false;
-        in.folder = game_folder() / L"Turnarounds";
+        in.folder = game_folder() / L"Fit Checks";
         in.stage = board_stage(in.options);
         ++runs;
-        if (!session().start(std::move(in))) return "A turnaround is already being made.";
+        if (!session().start(std::move(in))) return "A fit check is already being made.";
         const auto progress = session().progress();
         if (progress.phase == Phase::failed) return progress.message;
         return std::string(subject == Subject::skater ? "Turning the skater" : "Turning the board") +
-               "; the file goes to the Turnarounds folder beside Skate.exe.";
+               "; the file goes to the Fit Checks folder beside Skate.exe.";
     } catch (const std::exception& error) {
-        return std::string("The turnaround could not start: ") + error.what();
+        return std::string("The fit check could not start: ") + error.what();
     }
 }
 

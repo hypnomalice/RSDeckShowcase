@@ -174,7 +174,7 @@ bool Session::start(Inputs inputs) {
     // The render thread reads none of this until the phase below says it is capturing.
     cancelled_.store(false);
     in_ = std::move(inputs);
-    in_.options.frames = std::clamp<std::uint32_t>(in_.options.frames, 8, 240);
+    in_.options.frames = std::clamp<std::uint32_t>(in_.options.frames, 8, most_frames);
     in_.options.size = std::clamp<std::uint32_t>(in_.options.size, 64, 2048);
     angle_ = 0, wait_ = 0, light_ = false, posed_ = false, area_ = {}, work_scale_ = 1;
     captured_.clear();
@@ -223,13 +223,13 @@ bool Session::wants_frame() noexcept {
     }
     if (cancelled_.load()) {
         try { in_.stage->end(); } catch (...) {}
-        finish("Turnaround cancelled.", true);
+        finish("Fit check cancelled.", true);
         return false;
     }
     // However it goes, a turnaround gives the game back within 45 seconds.
     if (std::chrono::steady_clock::now() - started_ > std::chrono::seconds(45)) {
         try { in_.stage->end(); } catch (...) {}
-        finish("The turnaround took too long and was stopped. " + screen_hint(in_.options.subject), true);
+        finish("The fit check took too long and was stopped. " + screen_hint(in_.options.subject), true);
         return false;
     }
     if (in_.stage->continuous()) return next_continuous();
@@ -296,7 +296,7 @@ void Session::take_frame(const PixelView& frame) noexcept {
         {
             std::lock_guard lock(mutex_);
             progress_.phase = Phase::encoding;
-            progress_.message = "Saving the turnaround...";
+            progress_.message = "Saving the fit check...";
         }
         std::thread([this] { encode(); }).detach();
     } catch (const std::exception& error) {
@@ -304,7 +304,7 @@ void Session::take_frame(const PixelView& frame) noexcept {
         finish(error.what(), true);
     } catch (...) {
         try { in_.stage->end(); } catch (...) {}
-        finish("The turnaround failed.", true);
+        finish("The fit check failed.", true);
     }
 }
 
@@ -333,8 +333,8 @@ float unlike(const std::vector<float>& a, const std::vector<float>& b) {
     for (std::size_t i = 0; i < a.size() && i < b.size(); ++i) sum += std::abs(a[i] - b[i]);
     return sum / static_cast<float>(std::max<std::size_t>(a.size(), 1));
 }
-constexpr std::size_t most_kept = 240;       // pictures held at once, at most...
-constexpr std::size_t kept_bytes = 700u << 20; // ...and in bytes
+constexpr std::size_t most_kept = 480;       // pictures held at once, at most (enough for 60 a second)...
+constexpr std::size_t kept_bytes = 1000u << 20; // ...and in bytes
 constexpr std::uint32_t longest_turn = 2400; // frames (40 s at 60) to measure a turn in
 constexpr float moving = 6.0f;               // grey levels of change that say the board turns
 } // namespace
@@ -436,7 +436,7 @@ void Session::take_continuous(const PixelView& frame) {
     {
         std::lock_guard lock(mutex_);
         progress_.phase = Phase::encoding;
-        progress_.message = "Saving the turnaround...";
+        progress_.message = "Saving the fit check...";
     }
     std::thread([this] { encode(); }).detach();
 }
@@ -500,11 +500,11 @@ void Session::encode() noexcept {
             std::lock_guard lock(mutex_);
             progress_.file = path;
         }
-        finish("Saved " + u8name + " in the Turnarounds folder.", false);
+        finish("Saved " + u8name + " in the Fit Checks folder.", false);
     } catch (const std::exception& error) {
-        finish(std::string("The turnaround could not be saved: ") + error.what(), true);
+        finish(std::string("The fit check could not be saved: ") + error.what(), true);
     } catch (...) {
-        finish("The turnaround could not be saved.", true);
+        finish("The fit check could not be saved.", true);
     }
 }
 } // namespace dingosdk::turnaround

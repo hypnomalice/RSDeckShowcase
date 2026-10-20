@@ -344,7 +344,7 @@ void draw_item_browser() {
         prompt("F", view.focused_favorite ? "Unfavorite" : "Favorite");
         prompt("-", "Search");
         prompt("X", view.filter);
-        if (view.board) prompt("V", "Turnaround");
+        if (view.board) prompt("V", "Fit Check");
     }
     if (view.focused_favorite && !typing)
         star(draw, ImVec2(at.x - 22 * scale, at.y + height * 0.5f), 13 * scale, skate_theme::bar);

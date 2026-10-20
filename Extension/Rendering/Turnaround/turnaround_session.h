@@ -21,12 +21,15 @@ namespace dingosdk::turnaround {
 enum class Format { gif, apng, webm };
 const char* extension(Format format) noexcept;
 
+// The most frames one turnaround has: 6 s at 60 a second (each is held until the file is written).
+inline constexpr std::uint32_t most_frames = 360;
+
 struct Options {
     Subject subject{Subject::board}; // chosen for each turnaround, not kept
     Format format{Format::gif};
     bool transparent{true};    // no background; otherwise the board over `matte`
     Rgb matte{24, 25, 28};
-    std::uint32_t frames{120}; // pictures in one whole turn (seconds x fps, set when one starts)
+    std::uint32_t frames{120}; // pictures in one whole turn (seconds x fps, set when one starts; most_frames at most)
     std::uint32_t fps{30};
     float seconds{4};          // how long one whole turn takes to play
     std::uint32_t size{512};   // the board's square, in pixels; the parts card adds to the width

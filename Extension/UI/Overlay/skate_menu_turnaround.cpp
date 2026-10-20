@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <string>
 
-// ADDONS > TURNAROUND: how the board turnaround (V on the Board screen) is made. Every change is a
+// ADDONS > FIT CHECK: how the turnaround of the board or skater (V on the Board or Skaters screen) is made. Every change is a
 // `turnaround set` console command, so the settings are kept the same way however they are set.
 namespace dingosdk::overlay::menu {
 namespace {
@@ -78,13 +78,13 @@ void turnaround_addon(SkateMenu& menu, const Model& model, const CallbacksV3& ca
         send_console(menu, callbacks, "turnaround set " + key + " " + value);
     };
 
-    begin_card(menu, "turnaround", "TURNAROUND", "A spinning picture of your board or skater, to share");
+    begin_card(menu, "turnaround", "FIT CHECK", "A spinning picture of your board or skater, to share");
     note("Press V on the Board screen for the board, or on the Skaters screen (no grid open) for the skater in their outfit: it "
-         "turns once by itself and is saved to the Turnarounds folder beside Skate.exe. Keep your hands off the controls while it turns.");
+         "turns once by itself and is saved to the Fit Checks folder beside Skate.exe. Keep your hands off the controls while it turns.");
     if (!t.status.empty()) info(menu, t.busy ? "Now" : "Last", t.status);
     const int pressed = button_row(menu, "turnaround-actions",
-                                   {{"OPEN TURNAROUNDS FOLDER", callbacks.queue_console_command != nullptr, false, "See the saved turnarounds."},
-                                    {"CANCEL", t.busy, false, "Stop the turnaround being made."}});
+                                   {{"OPEN FIT CHECKS FOLDER", callbacks.queue_console_command != nullptr, false, "See the saved fit checks."},
+                                    {"CANCEL", t.busy, false, "Stop the fit check being made."}});
     if (pressed == 0) send_console(menu, callbacks, "turnaround open");
     else if (pressed == 1) send_console(menu, callbacks, "turnaround cancel");
     end_card();
@@ -110,7 +110,7 @@ void turnaround_addon(SkateMenu& menu, const Model& model, const CallbacksV3& ca
     matte = shown("matte", matte);
     if (choice(menu, "turnaround-matte", matte, {"Black", "Charcoal", "Discord", "White", "Green screen"}, can))
         picked("matte", matte), set("matte", hex(mattes[static_cast<std::size_t>(std::clamp(matte, 0, static_cast<int>(mattes.size()) - 1))].colour));
-    if (matte < 0) info(menu, "Colour", hex(t.matte) + " (set with turnaround set matte #rrggbb)");
+    if (matte < 0) info(menu, "Colour", hex(t.matte) + " (set with fitcheck set matte #rrggbb)");
     bool parts = shown("parts", t.parts ? 1 : 0) == 1;
     if (toggle_row(menu, "Parts card", "Show the deck, grip, trucks and wheels by name beside the board.", parts, can))
         picked("parts", parts ? 1 : 0), set("parts", parts ? "on" : "off");
@@ -123,14 +123,14 @@ void turnaround_addon(SkateMenu& menu, const Model& model, const CallbacksV3& ca
     int direction = shown("direction", t.spin_left ? 0 : 1);
     if (choice(menu, "turnaround-direction", direction, {"Left", "Right"}, can))
         picked("direction", direction), set("direction", direction == 0 ? "left" : "right");
-    field(menu, "Turn time", "How long one whole turn takes to play. Making it takes about ten times as long: the board is stepped round and each step waits to settle.");
+    field(menu, "Turn time", "How long one whole turn takes to play. Making it takes as long as the board or skater takes to turn once.");
     int seconds = shown("seconds", t.seconds <= 2 ? 0 : t.seconds <= 3 ? 1 : t.seconds <= 4 ? 2 : t.seconds <= 6 ? 3 : 4);
     if (choice(menu, "turnaround-seconds", seconds, {"2 s", "3 s", "4 s", "6 s", "8 s"}, can))
         picked("seconds", seconds), set("seconds", std::array{"2", "3", "4", "6", "8"}[static_cast<std::size_t>(seconds)]);
-    field(menu, "Frame rate", "Frames a second when it plays: smoother, and a longer turnaround to make.");
-    int fps = shown("fps", t.fps <= 15 ? 0 : t.fps <= 24 ? 1 : 2);
-    if (choice(menu, "turnaround-fps", fps, {"15", "24", "30"}, can))
-        picked("fps", fps), set("fps", std::array{"15", "24", "30"}[static_cast<std::size_t>(fps)]);
+    field(menu, "Frame rate", "Frames a second when it plays. 60 is the smoothest (APNG and WebM; a GIF plays at most 50). For 60 at long turn times, a slower spin gives more frames to choose from.");
+    int fps = shown("fps", t.fps <= 15 ? 0 : t.fps <= 24 ? 1 : t.fps <= 30 ? 2 : 3);
+    if (choice(menu, "turnaround-fps", fps, {"15", "24", "30", "60"}, can))
+        picked("fps", fps), set("fps", std::array{"15", "24", "30", "60"}[static_cast<std::size_t>(fps)]);
     field(menu, "Size", "The board's square, in pixels. The parts card adds to the width.");
     int size = shown("size", t.size <= 256 ? 0 : t.size <= 384 ? 1 : t.size <= 512 ? 2 : t.size <= 768 ? 3 : 4);
     if (choice(menu, "turnaround-size", size, {"256", "384", "512", "768", "1024"}, can))
