@@ -12,6 +12,8 @@ void take_grab(const overlay::GrabbedFrame& frame) noexcept; // render thread
 // `turnaround boards [seconds]`: the skateboard entities in memory, and what in them changes
 // while the player spins the board on show.
 std::string request_boards(double seconds);
+// `turnaround parts`: every item of the game's skater presets as it holds them now, with titles.
+std::string request_parts();
 // `turnaround stick <x> <y> [seconds]`: the right stick pushed, -1..1, on top of the pad's own.
 std::string request_stick(double x, double y, double seconds);
 } // namespace dingosdk::turnaround::research

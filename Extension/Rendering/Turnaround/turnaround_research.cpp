@@ -6,6 +6,8 @@
 #include "Engine/Game/Build/20260929/engine.h"
 #include "Engine/Game/Build/20260929/native_skater.h"
 #include "Extension/UI/Overlay/overlay.h"
+#include "Extension/Customization/local_customization.h"
+#include "Extension/Customization/local_customization_runtime.h"
 #include <Windows.h>
 #include <atomic>
 #include <chrono>
@@ -236,6 +238,39 @@ std::string request_boards(double seconds) {
     if (boards_running.exchange(true)) return "Already watching; the answer goes to the log.";
     std::thread(watch_boards, seconds).detach();
     return std::format("Looking for skateboards in memory, then watching them for {:.0f} s: spin the board now. The answer goes to the log.", seconds);
+}
+
+std::string request_parts() {
+    // The game's skater presets as it holds them now (the loadout manager the saves read, see
+    // local_customization_runtime.cpp): every item in them, its asset and its title.
+    try {
+        const auto base = game_base();
+        std::uintptr_t manager{}, begin{}, end{};
+        if (!memory::read(base + addr::engine::loadout_manager, manager) || !manager || !memory::read(manager + 0x18, begin) ||
+            !memory::read(manager + 0x20, end) || begin > end || (end - begin) % 0x48 || (end - begin) / 0x48 > 10)
+            return "The game's loadouts are not readable right now.";
+        for (std::uintptr_t record = begin, index = 0; record < end; record += 0x48, ++index) {
+            profile::CosmeticLoadout loadout;
+            std::vector<profile_runtime::CosmeticNativeRecipe> native;
+            if (!profile_runtime::read_cosmetic_recipes(reinterpret_cast<const void*>(record), loadout, native)) {
+                logging::log(Level::info, Channel::customization, "Turnaround parts: loadout {} ({:#x}) unreadable.", index, record);
+                continue;
+            }
+            std::string text;
+            for (std::size_t r = 0; r < loadout.recipes.size(); ++r) {
+                const auto& recipe = loadout.recipes[r];
+                text += std::format("\n  recipe {} (template {:#x}):", r, recipe.template_key);
+                for (const auto& item : recipe.items) {
+                    const auto title = profile::item_display_metadata(item.asset, Json::object()).value("title", "");
+                    text += std::format("\n    slot {:#010x} {} \"{}\"", item.slot, item.asset, title);
+                }
+            }
+            logging::log(Level::info, Channel::customization, "Turnaround parts: loadout {} ({:#x}):{}", index, record, text);
+        }
+        return "The game's loadouts are in the log.";
+    } catch (const std::exception& error) {
+        return std::string("Turnaround parts: ") + error.what();
+    }
 }
 
 std::string request_stick(double x, double y, double seconds) {

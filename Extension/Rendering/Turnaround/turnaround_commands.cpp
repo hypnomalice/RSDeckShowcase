@@ -28,10 +28,10 @@ double number(std::istringstream& words, double fallback) {
 void register_turnaround_commands(Commands& registry) {
     auto arguments = argument("verb_and_arguments", Type::text, true);
     arguments.rest = true;
-    arguments.complete = [](const Model&, auto) { return std::vector<std::string>{"grab", "boards", "stick"}; };
+    arguments.complete = [](const Model&, auto) { return std::vector<std::string>{"grab", "boards", "parts", "stick"}; };
     auto command = action("turnaround",
                           "Board turnaround research aids: grab (save this frame to Turnarounds\\), boards [seconds] "
-                          "(find the board on show; spin it while this watches), stick <x> <y> [seconds] (push the right "
+                          "(find the board on show; spin it while this watches), parts (the items worn now), stick <x> <y> [seconds] (push the right "
                           "stick, -1..1). Answers go to the log.",
                           Group::console, {std::move(arguments)});
     command.run = [](const Model&, const Values& values, const Output& out) {
@@ -43,11 +43,13 @@ void register_turnaround_commands(Commands& registry) {
             out("The next frame will be saved in the Turnarounds folder beside Skate.exe.");
         } else if (verb == "boards") {
             out(turnaround::research::request_boards(number(words, 6)));
+        } else if (verb == "parts") {
+            out(turnaround::research::request_parts());
         } else if (verb == "stick") {
             const auto x = number(words, 0.5), y = number(words, 0), seconds = number(words, 2);
             out(turnaround::research::request_stick(x, y, seconds));
         } else {
-            out("turnaround grab | boards [seconds] | stick <x> <y> [seconds]");
+            out("turnaround grab | boards [seconds] | parts | stick <x> <y> [seconds]");
         }
     };
     registry.add(std::move(command));

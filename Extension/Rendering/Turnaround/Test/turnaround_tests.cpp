@@ -13,7 +13,8 @@
 #include <string>
 
 // Turnaround pictures without the game: matting, resizing, the parts card and the file formats.
-// Run with the folder of the menu fonts (External/fonts) as the first argument to test the card too.
+// Run with the folder of the menu fonts (External/fonts) as the first argument to test the card too,
+// and a folder as the second to save a picture of it there.
 namespace {
 using namespace dingosdk::turnaround;
 int failures = 0;
@@ -227,7 +228,7 @@ void test_webm() {
            "an opaque WebM has no alpha");
 }
 
-void test_panel(const std::filesystem::path& fonts) {
+void test_panel(const std::filesystem::path& fonts, const char* out) {
     const auto load = [&](const char* name) {
         std::ifstream in(fonts / name, std::ios::binary);
         return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(in), {});
@@ -244,7 +245,7 @@ void test_panel(const std::filesystem::path& fonts) {
     expect(bright > 500, "the card has text on it");
     const auto shown = side_by_side(fitted(board(300, 0.2f), 512), card);
     expect(shown.width == 512 + card.width, "side_by_side lays the card beside the board");
-    if (const char* out = std::getenv("TURNAROUND_TEST_OUT")) {
+    if (out) { // a folder to save the card in, to look at it
         const auto png = encode_png(shown);
         std::ofstream(std::filesystem::path(out) / "parts_card.png", std::ios::binary).write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
     }
@@ -257,7 +258,7 @@ int main(int argc, char** argv) {
     test_png();
     test_gif();
     test_webm();
-    if (argc > 1) test_panel(argv[1]);
+    if (argc > 1) test_panel(argv[1], argc > 2 ? argv[2] : nullptr);
     else std::printf("skipped: the parts card (pass the fonts folder)\n");
     if (!failures) std::printf("turnaround tests passed\n");
     return failures ? 1 : 0;

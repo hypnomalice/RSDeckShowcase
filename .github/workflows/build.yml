@@ -42,7 +42,7 @@ jobs:
         run: |
           foreach ($log in 'configure.log', 'build.log', 'test.log') {
             if (-not (Test-Path $log)) { continue }
-            $lines = Get-Content $log | Where-Object { $_ -match 'error|FAIL|CMake Error|fatal' } | Select-Object -Unique -First 40
+            $lines = Get-Content $log | Where-Object { $_ -match 'error|warning C|FAIL|CMake Error|fatal' } | Select-Object -Unique -First 40
             if (-not $lines) { $lines = Get-Content $log -Tail 40 }
             $text = ($lines -join "`n") -replace '%', '%25' -replace "`r", '' -replace "`n", '%0A'
             Write-Output "::error title=$log::$text"
