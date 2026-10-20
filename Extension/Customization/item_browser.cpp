@@ -222,6 +222,20 @@ Rows read_rows(const md::Context& context, md::Value items, const Layout& layout
 }
 
 // The catalog item behind a tile's item model. Empty key: the tile does not show a cosmetic.
+// Every item's title as the grids showed it this session (a mod's item has none in the game's own
+// catalog), for the board turnaround's parts card.
+struct Titles {
+    std::mutex mutex;
+    std::map<std::string, std::string, std::less<>> by_key;
+};
+Titles& titles() { static auto* value = new Titles; return *value; }
+void remember_title(const std::string& key, const std::string& title) {
+    if (key.empty() || title.empty()) return;
+    auto& t = titles();
+    std::lock_guard lock(t.mutex);
+    if (t.by_key.size() < 65536) t.by_key.insert_or_assign(key, title);
+}
+
 Item resolve(const md::Context& context, std::uint64_t content) {
     Item item;
     item.content = content;
@@ -236,6 +250,7 @@ Item resolve(const md::Context& context, std::uint64_t content) {
     item.key = md::string(md::read<md::Address>(at + context.member(data.type, data_key).offset), 255);
     item.title = md::string(md::read<md::Address>(at + context.member(data.type, data_title).offset), 255);
     item.category = md::string(md::read<md::Address>(at + context.member(data.type, data_category).offset), 96);
+    remember_title(item.key, item.title);
     const auto& catalogs = content_cache::catalogs();
     item.modded = catalogs.available && !catalogs.items.contains(folded(item.key));
     return item;
@@ -555,6 +570,12 @@ void set_search(std::string text) {
     sh.search_pending = true;
 }
 void set_filter(Filter filter) noexcept { shared().filter.store(static_cast<int>(filter)); }
+std::string known_title(std::string_view key) {
+    auto& t = titles();
+    std::lock_guard lock(t.mutex);
+    const auto found = t.by_key.find(key);
+    return found == t.by_key.end() ? std::string() : found->second;
+}
 bool board_item(std::string_view key, std::string_view category) {
     // A Board tab's item: its key is under Customization/Board, or its category names a board part.
     const auto has = [](std::string_view text, std::string_view part) { return folded(text).find(part) != std::string::npos; };

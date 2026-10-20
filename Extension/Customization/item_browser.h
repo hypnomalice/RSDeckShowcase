@@ -24,6 +24,8 @@ void toggle_focused_favorite() noexcept;
 void set_search(std::string text);
 void set_filter(Filter filter) noexcept;
 void cycle_filter() noexcept;
+// An item's title as an item grid showed it this session (mods' items too), or empty. Any thread.
+std::string known_title(std::string_view key);
 // Whether an item is a board part (a Board tab's grid has the focus).
 bool board_item(std::string_view key, std::string_view category);
 // What V on a Board tab does: the board turnaround (Extension/Rendering/Turnaround), installed at startup.

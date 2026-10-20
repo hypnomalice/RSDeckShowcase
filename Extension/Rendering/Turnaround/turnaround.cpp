@@ -6,6 +6,8 @@
 #include "Engine/Core/Platform/memory.h"
 #include "Engine/Game/Build/addresses.h"
 #include "Engine/Game/Build/20260929/engine.h"
+#include "Engine/Game/Build/20260929/skater_slot_override.h"
+#include "Extension/Customization/item_browser.h"
 #include "Extension/Customization/local_customization.h"
 #include "Extension/Customization/local_customization_runtime.h"
 #include "Extension/UI/Overlay/overlay.h"
@@ -47,53 +49,58 @@ std::filesystem::path game_folder() {
     return std::filesystem::path(path).parent_path();
 }
 
-std::string lower(std::string text) {
-    for (auto& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return text;
+
+// The board's own recipe in a skater preset (its template), and its slots, in the card's order. Read
+// from the game's presets with `turnaround parts`, 2026-10-20.
+constexpr std::uint32_t board_template = 0x5e61aaef;
+struct BoardSlot { std::uint32_t slot; const char* label; };
+constexpr BoardSlot board_slots[] = {
+    {0x66071628, "Deck"}, {0x755d5ee0, "Grip tape"}, {0x976f18c4, "Grip cutout"}, {0x0add98be, "Trucks"}, {0xc83bb94e, "Wheels"}};
+
+// An item's name as the game shows it: its catalog title, the title an item grid showed (a mod's
+// item has no catalog entry), or its key made readable the way the game does for a mod's item.
+std::string item_title(const std::string& asset) {
+    auto title = profile::item_display_metadata(asset, Json::object()).value("title", "");
+    if (title.empty()) title = item_browser::known_title(asset);
+    if (title.empty()) {
+        title = asset.starts_with("Own_") || asset.starts_with("own_") ? asset.substr(4) : asset;
+        std::replace(title.begin(), title.end(), '_', ' ');
+    }
+    return title;
 }
 
-// What a board item is, from where its asset lives ("Characters/Customization/Board/Decks/...").
-std::string slot_label(const std::string& asset) {
-    const auto path = lower(asset);
-    struct Known { const char* part; const char* label; };
-    static constexpr Known known[] = {{"grip", "Grip tape"}, {"deck", "Deck"},       {"truck", "Trucks"},
-                                      {"wheel", "Wheels"},   {"bearing", "Bearings"}, {"hardware", "Hardware"},
-                                      {"riser", "Risers"},   {"bolt", "Hardware"}};
-    for (const auto& k : known)
-        if (path.find(k.part) != std::string::npos) return k.label;
-    // Otherwise the folder it is in.
-    const auto file = asset.find_last_of('/');
-    if (file == std::string::npos || !file) return "Part";
-    const auto folder = asset.find_last_of('/', file - 1);
-    return asset.substr(folder == std::string::npos ? 0 : folder + 1, file - (folder == std::string::npos ? 0 : folder + 1));
+// The selected skater preset (the native getter skater_slot_override.cpp uses), or -1. Game thread.
+std::int32_t selected_preset(std::uintptr_t base, std::uintptr_t manager) {
+    namespace slot = addr::skater_slot_override;
+    std::array<unsigned char, slot::native_selected_prefix.size()> bytes{};
+    if (!memory::read_bytes(base + slot::native_selected, bytes.data(), bytes.size()) || bytes != slot::native_selected_prefix) return -1;
+    return reinterpret_cast<std::int32_t (*)(std::uintptr_t)>(base + slot::native_selected)(manager);
 }
 
-// The board the skater wears now: its items, deck first, read from the game's loadouts (the ones
-// local_customization_runtime.cpp saves). The board items are the ones under Customization/Board.
+// The board the skater rides now: the board recipe of the selected preset (the first when none is
+// selected), its parts in the card's order, empty slots left out. Game thread.
 std::vector<Part> worn_board() {
     std::vector<Part> parts;
     const auto base = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
     std::uintptr_t manager{}, begin{}, end{};
     if (!memory::read(base + addr::engine::loadout_manager, manager) || !manager || !memory::read(manager + 0x18, begin) ||
-        !memory::read(manager + 0x20, end) || begin > end || (end - begin) % 0x48 || (end - begin) / 0x48 > 10)
+        !memory::read(manager + 0x20, end) || begin >= end || (end - begin) % 0x48 || (end - begin) / 0x48 > 10)
         return parts;
-    for (std::uintptr_t record = begin; record < end && parts.empty(); record += 0x48) {
-        profile::CosmeticLoadout loadout;
-        std::vector<profile_runtime::CosmeticNativeRecipe> native;
-        if (!profile_runtime::read_cosmetic_recipes(reinterpret_cast<const void*>(record), loadout, native)) continue;
-        for (const auto& recipe : loadout.recipes)
-            for (const auto& item : recipe.items) {
-                const auto path = lower(item.asset);
-                const bool board = path.find("/board/") != std::string::npos || path.find("skateboard") != std::string::npos ||
-                                   path.find("/deck") != std::string::npos || path.find("griptape") != std::string::npos ||
-                                   path.find("/trucks") != std::string::npos || path.find("/wheels") != std::string::npos;
-                if (!board) continue;
-                auto title = profile::item_display_metadata(item.asset, Json::object()).value("title", "");
-                if (title.empty()) title = item.asset.substr(item.asset.find_last_of('/') + 1);
-                parts.push_back({slot_label(item.asset), title});
-            }
+    const auto count = static_cast<std::int32_t>((end - begin) / 0x48);
+    auto preset = selected_preset(base, manager);
+    if (preset < 0 || preset >= count) preset = 0;
+    profile::CosmeticLoadout loadout;
+    std::vector<profile_runtime::CosmeticNativeRecipe> native;
+    if (!profile_runtime::read_cosmetic_recipes(reinterpret_cast<const void*>(begin + static_cast<std::uintptr_t>(preset) * 0x48), loadout, native))
+        return parts;
+    for (const auto& recipe : loadout.recipes) {
+        if (recipe.template_key != board_template) continue;
+        for (const auto& wanted : board_slots)
+            for (const auto& item : recipe.items)
+                if (item.slot == wanted.slot && !item.asset.empty()) parts.push_back({wanted.label, item_title(item.asset)});
+        break;
     }
-    std::stable_partition(parts.begin(), parts.end(), [](const Part& p) { return p.slot == "Deck"; });
+    logging::log(logging::Level::info, logging::Channel::customization, "Turnaround: preset {} of {}, {} board part(s).", preset, count, parts.size());
     return parts;
 }
 
@@ -312,7 +319,7 @@ std::string start_export() {
         in.options = current_options();
         in.options.frames = static_cast<std::uint32_t>(std::clamp(std::lround(in.options.seconds * static_cast<float>(in.options.fps)), 8L, 240L));
         in.parts = worn_board();
-        const auto deck = std::find_if(in.parts.begin(), in.parts.end(), [](const Part& p) { return p.slot == "Deck"; });
+        const auto deck = std::find_if(in.parts.begin(), in.parts.end(), [](const Part& part) { return part.slot == "Deck"; });
         in.title = deck != in.parts.end() ? deck->name : "board";
         in.fonts = {built_in(L"FONT_HEADING"), built_in(L"FONT_BODY"), built_in(L"FONT_BRUSH")};
         if (in.fonts.heading.empty() || in.fonts.body.empty() || in.fonts.brush.empty()) in.options.parts = false;
