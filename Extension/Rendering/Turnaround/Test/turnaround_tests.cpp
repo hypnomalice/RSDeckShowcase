@@ -348,6 +348,9 @@ public:
                 const float cover = std::clamp(0.5f - std::max(dx, dy), 0.0f, 1.0f);
                 const float deck[3] = {back ? 12.0f : 40.0f, back ? 12.0f : 150.0f + 80 * fy / h, back ? 13.0f : 220.0f};
                 for (int c = 0; c < 3; ++c) rgb[c] = deck[c] * cover + rgb[c] * (1 - cover);
+                // A skater's black joint, as dark as the backdrop behind it.
+                if (skater && cover > 0.99f && std::abs(fy - cy + 60) < 10 && std::abs(fx - cx) < half_w * 0.5f)
+                    for (int c = 0; c < 3; ++c) rgb[c] = bg + 1.0f;
                 auto* p = out.data() + (std::size_t{y} * w + x) * 4;
                 for (int c = 0; c < 3; ++c) p[2 - c] = static_cast<std::uint8_t>(std::clamp(rgb[c] * 0.92f + 5, 0.0f, 255.0f));
                 p[3] = 255;

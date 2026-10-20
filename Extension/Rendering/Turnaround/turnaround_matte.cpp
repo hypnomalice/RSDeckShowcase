@@ -170,12 +170,55 @@ void key_against_backdrop(std::vector<Image>& frames, bool solid_rows) {
                 const auto* b = plate.at(x, y);
                 int distance = 0;
                 for (std::size_t c = 0; c < 3; ++c) distance = std::max(distance, std::abs(p[c] - b[c]));
-                const float alpha = std::clamp((static_cast<float>(distance) - 5.0f) / 15.0f, 0.0f, 1.0f);
+                const float alpha = std::clamp((static_cast<float>(distance) - 3.0f) / 9.0f, 0.0f, 1.0f);
                 if (alpha <= 0) { p[0] = p[1] = p[2] = p[3] = 0; continue; }
                 for (std::size_t c = 0; c < 3; ++c)
                     p[c] = static_cast<std::uint8_t>(std::clamp(std::lround((p[c] - (1 - alpha) * b[c]) / alpha), 0L, 255L));
                 p[3] = static_cast<std::uint8_t>(std::lround(alpha * 255));
             }
+    // A skater is not solid across, but a dark part of them (a black joint, a dark shirt) can match a
+    // dark backdrop and key out as a hole in them. A small pocket the skater closes all round is
+    // filled from the frame; a bigger one is real backdrop (between an arm and the body).
+    for (std::size_t f = 0; !solid_rows && f < frames.size(); ++f) {
+        auto& frame = frames[f];
+        const std::size_t n = std::size_t{w} * h;
+        std::vector<std::uint8_t> outside(n);
+        std::vector<std::uint32_t> todo;
+        std::size_t opaque = 0;
+        const auto clear = [&](std::size_t p) { return frame.rgba[p * 4 + 3] < 128; };
+        for (std::size_t p = 0; p < n; ++p) {
+            if (!clear(p)) { ++opaque; continue; }
+            const auto x = p % w, y = p / w;
+            if (x == 0 || y == 0 || x + 1 == w || y + 1 == h) outside[p] = 1, todo.push_back(static_cast<std::uint32_t>(p));
+        }
+        const auto spread = [&](std::vector<std::uint8_t>& mark, std::vector<std::uint32_t>& stack, std::vector<std::uint32_t>* region) {
+            while (!stack.empty()) {
+                const auto p = stack.back();
+                stack.pop_back();
+                if (region) region->push_back(p);
+                const auto x = p % w, y = p / w;
+                const std::uint32_t next[4] = {x > 0 ? p - 1 : p, x + 1 < w ? p + 1 : p, y > 0 ? p - w : p, y + 1 < h ? p + w : p};
+                for (const auto q : next)
+                    if (!mark[q] && clear(q)) mark[q] = 1, stack.push_back(q);
+            }
+        };
+        spread(outside, todo, nullptr);
+        const auto pocket_most = std::max<std::size_t>(16, opaque * 3 / 100);
+        std::vector<std::uint32_t> region;
+        for (std::size_t p = 0; p < n; ++p) {
+            if (outside[p] || !clear(p)) continue;
+            region.clear();
+            outside[p] = 1;
+            todo.push_back(static_cast<std::uint32_t>(p));
+            spread(outside, todo, &region);
+            if (region.size() > pocket_most) continue;
+            for (const auto q : region) {
+                auto* px = frame.rgba.data() + std::size_t{q} * 4;
+                std::copy_n(raw[f].rgba.data() + std::size_t{q} * 4, 3, px);
+                px[3] = 255;
+            }
+        }
+    }
     // A board is solid across: anything between its outermost keyed pixels in a row is board, even
     // where part of a graphic matched the backdrop and keyed out.
     for (std::size_t f = 0; solid_rows && f < frames.size(); ++f) {
