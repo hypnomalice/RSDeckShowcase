@@ -62,54 +62,122 @@ Image matte_pair(const PixelView& dark, const PixelView& light, Rect area, const
         }
     return out;
 }
-// Without a background of its own to swap, the board is keyed out against the backdrop. The
-// backdrop is found from the turn itself: a pixel the board leaves for much of the turn keeps one
-// colour then, the backdrop's; one the board (nearly) always covers has no steady colour, and there
-// the backdrop is taken from the row's ends, where the board never goes (the Board screen's
-// backdrop is a smooth vignette). An exact backdrop lets the key be tight, so a black grip against
-// the dark backdrop still reads as board. Matting (a stage that swaps the background) is better
-// still; this is for when there is none.
+namespace {
+// A smooth surface over the area, a + bx + cy + dx^2 + exy + fy^2 per channel (x, y from -1 to 1):
+// the shape of the Board screen's vignette.
+struct Smooth {
+    std::array<std::array<double, 6>, 3> k{};
+    static std::array<double, 6> terms(double x, double y) { return {1, x, y, x * x, x * y, y * y}; }
+    float at(std::size_t c, double x, double y) const {
+        const auto t = terms(x, y);
+        double v = 0;
+        for (std::size_t i = 0; i < 6; ++i) v += k[c][i] * t[i];
+        return static_cast<float>(v);
+    }
+};
+// Least squares through the samples (x, y, colour); false when they do not pin a surface down.
+bool fit(const std::vector<std::array<float, 5>>& samples, Smooth& out) {
+    if (samples.size() < 24) return false;
+    for (std::size_t c = 0; c < 3; ++c) {
+        std::array<std::array<double, 7>, 6> m{};
+        for (const auto& s : samples) {
+            const auto t = Smooth::terms(s[0], s[1]);
+            for (std::size_t i = 0; i < 6; ++i) {
+                for (std::size_t j = 0; j < 6; ++j) m[i][j] += t[i] * t[j];
+                m[i][6] += t[i] * s[2 + c];
+            }
+        }
+        for (std::size_t i = 0; i < 6; ++i) { // Gaussian elimination with partial pivoting
+            std::size_t pivot = i;
+            for (std::size_t r = i + 1; r < 6; ++r)
+                if (std::abs(m[r][i]) > std::abs(m[pivot][i])) pivot = r;
+            std::swap(m[i], m[pivot]);
+            if (std::abs(m[i][i]) < 1e-9) return false;
+            for (std::size_t r = 0; r < 6; ++r) {
+                if (r == i) continue;
+                const double f = m[r][i] / m[i][i];
+                for (std::size_t j = i; j < 7; ++j) m[r][j] -= f * m[i][j];
+            }
+        }
+        for (std::size_t i = 0; i < 6; ++i) out.k[c][i] = m[i][6] / m[i][i];
+    }
+    return true;
+}
+} // namespace
+
+// Without a background of its own to swap, the board is keyed out against the backdrop, found from
+// the turn itself. The backdrop is a smooth vignette that keeps still, so:
+//  1. each pixel's steady colour over the turn (the one it keeps most of the time) is a candidate;
+//  2. a smooth surface is fitted through the candidates, those that do not fit thrown out and the
+//     rest fitted again: a pixel the board covers for most of the turn has a board colour for its
+//     steady one (a white deck, a white grip), and that does not fit the vignette;
+//  3. the backdrop at a pixel is the colour it shows, in any frame, that fits the surface; the
+//     surface itself where it never shows one.
+// An exact backdrop lets the key be tight, so a black grip against the dark backdrop still reads as
+// board. Matting (a stage that swaps the background) is better still; this is for when there is
+// none.
 void key_against_backdrop(std::vector<Image>& frames) {
     if (frames.empty()) return;
     const auto raw = frames;
     const auto w = frames.front().width, h = frames.front().height;
-    constexpr std::uint32_t band = 6; // columns sampled at each end of a row
-    if (w < band * 4) return;
+    if (w < 24 || h < 24) return;
     const auto luma = [](const std::uint8_t* p) { return (77 * p[0] + 150 * p[1] + 29 * p[2]) >> 8; };
-    Image plate(w, h);
+    const auto nx = [w](std::uint32_t x) { return 2.0 * (x + 0.5) / w - 1; };
+    const auto ny = [h](std::uint32_t y) { return 2.0 * (y + 0.5) / h - 1; };
+
+    // 1. Steady colours, on a grid (every 3rd pixel is plenty for a smooth surface).
+    std::vector<std::array<float, 5>> samples;
     std::vector<int> values(frames.size());
-    for (std::uint32_t y = 0; y < h; ++y) {
-        // The row's ends, over every frame.
-        std::array<std::vector<std::uint8_t>, 6> ends;
-        for (const auto& frame : frames)
-            for (std::uint32_t k = 0; k < band; ++k)
-                for (std::size_t c = 0; c < 3; ++c) ends[c].push_back(frame.at(k, y)[c]), ends[3 + c].push_back(frame.at(w - 1 - k, y)[c]);
-        std::array<float, 6> end_median{};
-        for (std::size_t k = 0; k < 6; ++k) {
-            std::nth_element(ends[k].begin(), ends[k].begin() + static_cast<std::ptrdiff_t>(ends[k].size() / 2), ends[k].end());
-            end_median[k] = ends[k][ends[k].size() / 2];
-        }
-        for (std::uint32_t x = 0; x < w; ++x) {
+    for (std::uint32_t y = 1; y < h; y += 3)
+        for (std::uint32_t x = 1; x < w; x += 3) {
             for (std::size_t f = 0; f < frames.size(); ++f) values[f] = luma(frames[f].at(x, y));
             auto sorted = values;
             std::nth_element(sorted.begin(), sorted.begin() + static_cast<std::ptrdiff_t>(sorted.size() / 2), sorted.end());
             const int middle = sorted[sorted.size() / 2];
-            std::array<std::uint64_t, 3> sum{};
+            std::array<double, 3> sum{};
             std::size_t steady = 0;
             for (std::size_t f = 0; f < frames.size(); ++f)
                 if (std::abs(values[f] - middle) <= 4) {
                     ++steady;
                     for (std::size_t c = 0; c < 3; ++c) sum[c] += frames[f].at(x, y)[c];
                 }
-            auto* b = plate.at(x, y);
-            if (steady * 100 >= frames.size() * 35) {
-                for (std::size_t c = 0; c < 3; ++c) b[c] = static_cast<std::uint8_t>(sum[c] / steady);
-            } else {
-                const float t = static_cast<float>(x) / static_cast<float>(w - 1);
-                for (std::size_t c = 0; c < 3; ++c) b[c] = static_cast<std::uint8_t>(std::lround(end_median[c] + (end_median[3 + c] - end_median[c]) * t));
-            }
+            if (steady * 100 < frames.size() * 35) continue;
+            samples.push_back({static_cast<float>(nx(x)), static_cast<float>(ny(y)), static_cast<float>(sum[0] / static_cast<double>(steady)),
+                               static_cast<float>(sum[1] / static_cast<double>(steady)), static_cast<float>(sum[2] / static_cast<double>(steady))});
         }
+    // 2. The vignette, fitted and fitted again without what does not fit it.
+    Smooth surface;
+    if (!fit(samples, surface)) return;
+    for (int round = 0; round < 4; ++round) {
+        std::vector<std::array<float, 5>> kept;
+        for (const auto& s : samples) {
+            float off = 0;
+            for (std::size_t c = 0; c < 3; ++c) off = std::max(off, std::abs(s[2 + c] - surface.at(c, s[0], s[1])));
+            if (off <= (round < 2 ? 14.0f : 7.0f)) kept.push_back(s);
+        }
+        if (!fit(kept, surface)) break;
+        samples = std::move(kept);
     }
+    // 3. Each pixel's backdrop: what it shows that fits the vignette.
+    Image plate(w, h);
+    for (std::uint32_t y = 0; y < h; ++y)
+        for (std::uint32_t x = 0; x < w; ++x) {
+            std::array<float, 3> smooth{};
+            for (std::size_t c = 0; c < 3; ++c) smooth[c] = surface.at(c, nx(x), ny(y));
+            std::array<double, 3> sum{};
+            std::size_t fits = 0;
+            for (const auto& frame : frames) {
+                const auto* p = frame.at(x, y);
+                float off = 0;
+                for (std::size_t c = 0; c < 3; ++c) off = std::max(off, std::abs(static_cast<float>(p[c]) - smooth[c]));
+                if (off > 8.0f) continue;
+                ++fits;
+                for (std::size_t c = 0; c < 3; ++c) sum[c] += p[c];
+            }
+            auto* b = plate.at(x, y);
+            for (std::size_t c = 0; c < 3; ++c)
+                b[c] = static_cast<std::uint8_t>(std::clamp(std::lround(fits >= 2 ? sum[c] / static_cast<double>(fits) : smooth[c]), 0L, 255L));
+        }
     for (auto& frame : frames)
         for (std::uint32_t y = 0; y < h; ++y)
             for (std::uint32_t x = 0; x < w; ++x) {

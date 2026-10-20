@@ -247,6 +247,10 @@ extern "C" __declspec(dllexport) BOOL WINAPI DingoSDKDebugInitialize() {
         dingosdk::overlay::set_ui_sound(dingosdk::multiplayer::queue_ui_sound);
         dingosdk::overlay::set_item_browser(dingosdk::item_browser::overlay_host());
         dingosdk::overlay::set_frame_grab(dingosdk::turnaround::frame_grab());
+        dingosdk::turnaround::set_console_queue([](const char* command) {
+            std::array<char, 256> result{};
+            return dingosdk::runtime::detail::queue_console_command(nullptr, command, result.data(), result.size());
+        });
         dingosdk::item_browser::set_turnaround_request([] {
             const auto said = dingosdk::turnaround::start_export();
             dingosdk::logging::log(dingosdk::logging::Level::info, dingosdk::logging::Channel::graphics, "Turnaround: {}", said);

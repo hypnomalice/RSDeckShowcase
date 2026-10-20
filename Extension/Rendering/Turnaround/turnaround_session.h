@@ -23,8 +23,9 @@ struct Options {
     Format format{Format::gif};
     bool transparent{true};    // no background; otherwise the board over `matte`
     Rgb matte{24, 25, 28};
-    std::uint32_t frames{48};  // pictures in one whole turn
-    std::uint32_t fps{24};
+    std::uint32_t frames{120}; // pictures in one whole turn (seconds x fps, set when one starts)
+    std::uint32_t fps{30};
+    float seconds{4};          // how long one whole turn takes to play
     std::uint32_t size{512};   // the board's square, in pixels; the parts card adds to the width
     bool parts{true};          // the "parts used" card beside the board
     std::uint32_t settle{6};   // frames to wait after each change, for the game's temporal smoothing

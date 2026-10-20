@@ -1273,7 +1273,7 @@ void update_model(std::uintptr_t client, TickState& frame) {
         turnaround_model.matte = turnaround_options.matte;
         turnaround_model.speed = static_cast<int>(std::lround(std::abs(turnaround_options.spin) * 100));
         turnaround_model.spin_left = turnaround_options.spin < 0;
-        turnaround_model.frames = static_cast<int>(turnaround_options.frames);
+        turnaround_model.seconds = static_cast<int>(std::lround(turnaround_options.seconds));
         turnaround_model.size = static_cast<int>(turnaround_options.size);
         turnaround_model.fps = static_cast<int>(turnaround_options.fps);
         turnaround_model.status = dingosdk::turnaround::last_message();

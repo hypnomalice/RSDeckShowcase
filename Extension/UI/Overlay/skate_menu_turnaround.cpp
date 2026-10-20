@@ -123,14 +123,14 @@ void turnaround_addon(SkateMenu& menu, const Model& model, const CallbacksV3& ca
     int direction = shown("direction", t.spin_left ? 0 : 1);
     if (choice(menu, "turnaround-direction", direction, {"Left", "Right"}, can))
         picked("direction", direction), set("direction", direction == 0 ? "left" : "right");
-    field(menu, "Frames a turn", "More frames turn more smoothly and make a bigger file.");
-    int frames = shown("frames", t.frames <= 24 ? 0 : t.frames <= 36 ? 1 : t.frames <= 48 ? 2 : t.frames <= 72 ? 3 : 4);
-    if (choice(menu, "turnaround-frames", frames, {"24", "36", "48", "72", "96"}, can))
-        picked("frames", frames), set("frames", std::array{"24", "36", "48", "72", "96"}[static_cast<std::size_t>(frames)]);
-    field(menu, "Frame rate", "Frames a second when it plays: with 48 frames, 24 fps turns in two seconds.");
-    int fps = shown("fps", t.fps <= 15 ? 0 : t.fps <= 24 ? 1 : t.fps <= 30 ? 2 : 3);
-    if (choice(menu, "turnaround-fps", fps, {"15", "24", "30", "50"}, can))
-        picked("fps", fps), set("fps", std::array{"15", "24", "30", "50"}[static_cast<std::size_t>(fps)]);
+    field(menu, "Turn time", "How long one whole turn takes to play. Making it takes about ten times as long: the board is stepped round and each step waits to settle.");
+    int seconds = shown("seconds", t.seconds <= 2 ? 0 : t.seconds <= 3 ? 1 : t.seconds <= 4 ? 2 : t.seconds <= 6 ? 3 : 4);
+    if (choice(menu, "turnaround-seconds", seconds, {"2 s", "3 s", "4 s", "6 s", "8 s"}, can))
+        picked("seconds", seconds), set("seconds", std::array{"2", "3", "4", "6", "8"}[static_cast<std::size_t>(seconds)]);
+    field(menu, "Frame rate", "Frames a second when it plays: smoother, and a longer turnaround to make.");
+    int fps = shown("fps", t.fps <= 15 ? 0 : t.fps <= 24 ? 1 : 2);
+    if (choice(menu, "turnaround-fps", fps, {"15", "24", "30"}, can))
+        picked("fps", fps), set("fps", std::array{"15", "24", "30"}[static_cast<std::size_t>(fps)]);
     field(menu, "Size", "The board's square, in pixels. The parts card adds to the width.");
     int size = shown("size", t.size <= 256 ? 0 : t.size <= 384 ? 1 : t.size <= 512 ? 2 : t.size <= 768 ? 3 : 4);
     if (choice(menu, "turnaround-size", size, {"256", "384", "512", "768", "1024"}, can))

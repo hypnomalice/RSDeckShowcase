@@ -301,7 +301,7 @@ void Session::take_continuous(const PixelView& frame) {
         }
         // Steps of about a third of an output frame's turn, at least two frames of push each; a
         // fast spin is pushed more gently instead.
-        steps_target_ = std::max<std::uint32_t>(in_.options.frames * 3 / 2, 48);
+        steps_target_ = std::max<std::uint32_t>(in_.options.frames, 24); // one step a frame
         push_per_step_ = period_ / steps_target_;
         if (push_per_step_ < 2) {
             strength_ = std::max(0.08f, static_cast<float>(push_per_step_ / 2));

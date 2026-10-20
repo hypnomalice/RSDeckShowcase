@@ -1,4 +1,5 @@
 #include "turnaround_stage.h"
+#include "turnaround.h"
 #include "Extension/UI/Overlay/overlay.h"
 #include <algorithm>
 #include <atomic>
@@ -34,6 +35,8 @@ public:
         previous_ = DingoSDKOverlayGamepadFilter();
         DingoSDKOverlaySetGamepadFilter(&spin_filter);
         DingoSDKOverlaySetVirtualPad(true);
+        // The board's shadow on the backdrop would be cut out with it: shadows off while it turns.
+        queue_console("turnaround shadows off");
         held_ = true;
         return true;
     }
@@ -49,6 +52,7 @@ public:
         held_ = false;
         DingoSDKOverlaySetVirtualPad(false);
         DingoSDKOverlaySetGamepadFilter(previous_ == &spin_filter ? nullptr : previous_);
+        queue_console("turnaround shadows restore");
     }
     ~StickStage() override { end(); }
 

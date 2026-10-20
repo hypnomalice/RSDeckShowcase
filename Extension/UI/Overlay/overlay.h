@@ -263,7 +263,7 @@ struct TurnaroundModel {
     std::array<std::uint8_t, 3> matte{24, 25, 28};
     int speed = 50;      // percent of the stick
     bool spin_left = false;
-    int frames = 48, size = 512, fps = 24;
+    int seconds = 4, size = 512, fps = 30;
     std::string status;
 };
 

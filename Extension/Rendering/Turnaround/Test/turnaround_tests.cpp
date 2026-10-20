@@ -104,7 +104,7 @@ void test_matte() {
 
 // A whole turn of a board with a black grip over a dark radial vignette, the Board screen's worst
 // case: where the board has been, the backdrop must come back see-through, not as a dark ghost.
-void test_backdrop_key() {
+void test_backdrop_key(bool light_both_sides) {
     constexpr std::uint32_t w = 300, h = 500, turn_frames = 120;
     std::vector<Image> frames, truth;
     for (std::uint32_t f = 0; f < turn_frames; ++f) {
@@ -119,7 +119,10 @@ void test_backdrop_key() {
                 const float bg = 30 + 16 * std::max(0.0f, 1 - (rx * rx + ry * ry) * 2);
                 const float dx = std::abs(fx - 150) - half_w, dy = std::abs(fy - 250) - half_h;
                 const float cover = std::clamp(0.5f - std::max(dx, dy), 0.0f, 1.0f);
-                const float deck[3] = {grip ? 12.0f : 226.0f, grip ? 12.0f : 220.0f, grip ? 13.0f : 208.0f};
+                // A white deck with a black grip; or one light on both sides (a white grip), which covers
+                // the middle for most of the turn: there the backdrop is seen least.
+                const float back = light_both_sides ? 200.0f : 12.0f;
+                const float deck[3] = {grip ? back : 226.0f, grip ? back : 220.0f, grip ? back + 1 : 208.0f};
                 auto* p = frame.at(x, y);
                 for (int c = 0; c < 3; ++c) p[c] = static_cast<std::uint8_t>(std::lround(deck[c] * cover + (bg + static_cast<float>(c)) * (1 - cover)));
                 p[3] = 255;
@@ -137,7 +140,7 @@ void test_backdrop_key() {
                 if (want == 0) ++background, ghost += got > 64;
                 if (want == 255) ++board, lost += got < 192;
             }
-    std::printf("backdrop key: %.3f%% ghost, %.3f%% lost\n", 100.0 * static_cast<double>(ghost) / static_cast<double>(background),
+    std::printf("backdrop key (%s): %.3f%% ghost, %.3f%% lost\n", light_both_sides ? "light both sides" : "black grip", 100.0 * static_cast<double>(ghost) / static_cast<double>(background),
                 100.0 * static_cast<double>(lost) / static_cast<double>(board));
     expect(ghost * 1000 < background, "where the board has been comes back see-through");
     expect(lost * 100 < board, "a black grip on the dark backdrop stays board");
@@ -392,7 +395,8 @@ void test_session(const std::filesystem::path& fonts, bool backgrounds, Format f
 
 int main(int argc, char** argv) {
     test_matte();
-    test_backdrop_key();
+    test_backdrop_key(false);
+    test_backdrop_key(true);
     test_geometry();
     test_png();
     test_gif();

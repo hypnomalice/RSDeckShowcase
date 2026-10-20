@@ -205,11 +205,11 @@ std::string apply(Options& o, std::string_view key, std::string_view value) {
         else return {};
         return "Spin stick: " + std::string(value) + ".";
     }
-    if (key == "frames") {
-        const auto n = number(8, 240);
+    if (key == "seconds") {
+        const auto n = number(1, 12);
         if (!n) return {};
-        o.frames = static_cast<std::uint32_t>(*n);
-        return std::format("{} frames a turn.", *n);
+        o.seconds = static_cast<float>(*n);
+        return std::format("One turn takes {} s.", *n);
     }
     if (key == "size") {
         const auto n = number(64, 2048);
@@ -218,7 +218,7 @@ std::string apply(Options& o, std::string_view key, std::string_view value) {
         return std::format("Size: {} px.", *n);
     }
     if (key == "fps") {
-        const auto n = number(1, 60);
+        const auto n = number(5, 50);
         if (!n) return {};
         o.fps = static_cast<std::uint32_t>(*n);
         return std::format("{} frames a second.", *n);
@@ -239,7 +239,7 @@ void save(const Options& o) {
         << "speed=" << std::lround(std::abs(o.spin) * 100) << "\n"
         << "direction=" << (o.spin < 0 ? "left" : "right") << "\n"
         << "axis=" << (o.spin_axis == 0 ? "lx" : o.spin_axis == 1 ? "ly" : o.spin_axis == 3 ? "ry" : "rx") << "\n"
-        << "frames=" << o.frames << "\n"
+        << "seconds=" << std::lround(o.seconds) << "\n"
         << "size=" << o.size << "\n"
         << "fps=" << o.fps << "\n";
 }
@@ -269,7 +269,7 @@ std::string set_option(std::string_view key, std::string_view value) {
     auto& o = options();
     auto said = apply(o, key, value);
     if (said.empty()) return "turnaround set format gif|apng|webm | background clear|matte | matte #rrggbb | parts on|off | "
-                             "speed 5-100 | direction left|right | frames 8-240 | size 64-2048 | fps 1-60";
+                             "speed 5-100 | direction left|right | seconds 1-12 | fps 5-50 | size 64-2048";
     try { save(o); } catch (...) {}
     return said;
 }
@@ -285,6 +285,19 @@ std::string last_message() {
     return progress.message;
 }
 
+namespace {
+std::atomic<bool (*)(const char*)>& console_queue() {
+    static std::atomic<bool (*)(const char*)> value{};
+    return value;
+}
+} // namespace
+void set_console_queue(bool (*queue)(const char* command)) noexcept { console_queue().store(queue); }
+void queue_console(const char* command) noexcept {
+    if (const auto queue = console_queue().load()) {
+        try { queue(command); } catch (...) {}
+    }
+}
+
 void open_folder() {
     const auto folder = game_folder() / L"Turnarounds";
     std::error_code error;
@@ -297,6 +310,7 @@ std::string start_export() {
     try {
         Session::Inputs in;
         in.options = current_options();
+        in.options.frames = static_cast<std::uint32_t>(std::clamp(std::lround(in.options.seconds * static_cast<float>(in.options.fps)), 8L, 240L));
         in.parts = worn_board();
         const auto deck = std::find_if(in.parts.begin(), in.parts.end(), [](const Part& p) { return p.slot == "Deck"; });
         in.title = deck != in.parts.end() ? deck->name : "board";

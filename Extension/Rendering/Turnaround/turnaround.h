@@ -17,6 +17,9 @@ std::string set_option(std::string_view key, std::string_view value);
 // The last thing a turnaround said (its progress while one is being made), for the Addons page.
 std::string last_message();
 void open_folder();
+// How a console command is run on the game thread (installed at startup): for engine settings.
+void set_console_queue(bool (*queue)(const char* command)) noexcept;
+void queue_console(const char* command) noexcept;
 // Starts one with options(), of the board worn now; what to tell the player.
 std::string start_export();
 void cancel_export() noexcept;

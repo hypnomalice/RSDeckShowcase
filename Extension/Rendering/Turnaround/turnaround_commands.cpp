@@ -1,6 +1,10 @@
 #include "Extension/Console/commands.h"
 #include "turnaround.h"
 #include "turnaround_research.h"
+#include "Engine/Core/Log/logging.h"
+#include "Extension/Settings/named_settings.h"
+#include <cctype>
+#include <map>
 #include <algorithm>
 #include <charconv>
 #include <cstdlib>
@@ -15,6 +19,28 @@ double number(std::istringstream& words, double fallback) {
     const auto [end, error] = std::from_chars(word.data(), word.data() + word.size(), value);
     return error == std::errc{} && end == word.data() + word.size() ? value : fallback;
 }
+// The engine's shadow switches, as found this session (the names come from the game's own settings
+// registry): WorldRender.*Shadow*Enable and the like, but not the fog's volumetric shadows.
+std::vector<std::string> shadow_switches() {
+    std::vector<std::string> out;
+    for (const auto& name : named_setting_names()) {
+        std::string folded = name;
+        for (auto& c : folded) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (folded.find("shadow") != std::string::npos && folded.find("enable") != std::string::npos && !folded.starts_with("fog."))
+            out.push_back(name);
+    }
+    return out;
+}
+bool on(const std::string& value) {
+    std::string v = value;
+    for (auto& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return v == "true" || v == "1" || v == "on";
+}
+// What the turnaround turned off, and what each was, to put back.
+std::map<std::string, std::string>& shadows_put_out() {
+    static auto* value = new std::map<std::string, std::string>;
+    return *value;
+}
 } // namespace
 
 void register_turnaround_commands(Commands& registry) {
@@ -23,7 +49,7 @@ void register_turnaround_commands(Commands& registry) {
     arguments.complete = [](const Model&, auto) { return std::vector<std::string>{"export", "set", "open", "cancel", "grab", "boards", "parts", "stick"}; };
     auto command = action("turnaround",
                           "Board turnarounds (V on the Board screen): export [gif|apng|webm] [clear|matte] [frames] [size] [parts|noparts] [key=value], "
-                          "set <key> <value> (format, background, matte, parts, speed, direction, frames, size, fps; kept), open (the folder), cancel. Research aids: grab (save this frame to Turnarounds\\), boards [seconds] "
+                          "set <key> <value> (format, background, matte, parts, speed, direction, seconds, fps, size; kept), open (the folder), cancel. Research aids: grab (save this frame to Turnarounds\\), boards [seconds] "
                           "(find the board on show; spin it while this watches), parts (the items worn now), stick <x> <y> [seconds] (push the right "
                           "stick, -1..1). Answers go to the log.",
                           Group::console, {std::move(arguments)});
@@ -40,13 +66,34 @@ void register_turnaround_commands(Commands& registry) {
                 else if (word == "clear" || word == "transparent" || word == "matte") turnaround::set_option("background", word);
                 else if (word == "parts" || word == "noparts") turnaround::set_option("parts", word == "parts" ? "on" : "off");
                 else if (std::uint32_t n{}; std::from_chars(word.data(), word.data() + word.size(), n).ec == std::errc{} && n)
-                    turnaround::set_option(n <= 240 ? "frames" : "size", word);
+                    turnaround::set_option(n <= 12 ? "seconds" : "size", word);
             }
             out(turnaround::start_export());
         } else if (verb == "set") {
             std::string key, value;
             words >> key >> value;
             out(turnaround::set_option(key, value));
+        } else if (verb == "shadows") {
+            // `turnaround shadows off|restore`: queued by the turnaround around its capture, so the board's
+            // shadow on the backdrop does not come out as part of it. On the game thread, as settings are.
+            std::string what;
+            words >> what;
+            auto& put_out = shadows_put_out();
+            if (what == "off") {
+                for (const auto& name : shadow_switches()) {
+                    const auto value = named_setting_value(name);
+                    if (!value || !on(*value) || put_out.contains(name)) continue;
+                    const auto said = request_named_setting(name, "false", false);
+                    if (said.starts_with("error")) continue;
+                    put_out[name] = *value;
+                    logging::log(logging::Level::info, logging::Channel::graphics, "Turnaround: {} off while turning ({})", name, said);
+                }
+                out(put_out.empty() ? "No shadow switches to turn off." : std::to_string(put_out.size()) + " shadow switch(es) off.");
+            } else {
+                for (const auto& [name, value] : put_out) request_named_setting(name, value, false);
+                out(put_out.empty() ? "No shadows to put back." : "Shadows put back.");
+                put_out.clear();
+            }
         } else if (verb == "open") {
             turnaround::open_folder();
             out("Opened the Turnarounds folder.");
