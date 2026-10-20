@@ -16,6 +16,8 @@ add_library(dingosdk_runtime SHARED
     Extension/Skater/drone_outfit.cpp
     Extension/Multiplayer/console_commands.cpp
     Extension/Customization/console_commands.cpp
+    Extension/Rendering/Turnaround/turnaround_commands.cpp
+    Extension/Rendering/Turnaround/turnaround_research.cpp
     Extension/Multiplayer/Session/session.cpp
     Extension/Multiplayer/Session/session_view.cpp
     Extension/Multiplayer/Session/session_send.cpp

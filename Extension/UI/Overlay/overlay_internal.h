@@ -273,6 +273,11 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp);
 // Swapchain selection, device objects and the per-frame draw (overlay_render.cpp).
 bool completed(UINT64 value, DWORD timeout_ms);
 void destroy_graphics();
+// Board turnarounds (frame_grab.cpp): a frame is being asked for, so the overlay keeps working;
+// the presented frame's pixels handed over before the overlay draws on it; its GPU objects let go.
+bool frame_grab_pending();
+void grab_presented_frame(State& s, ID3D12Resource* buffer);
+void release_frame_grab();
 ComPtr<IUnknown> object_identity(IUnknown* object);
 Binding* find_binding(IUnknown* identity);
 void guarded_render(IDXGISwapChain* chain, UINT flags) noexcept;

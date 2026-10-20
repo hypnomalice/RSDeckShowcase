@@ -81,6 +81,7 @@ void destroy_graphics() {
     menu_map_pixels_lost();
     s.mod_icon_texture.Reset(); s.mod_icon_upload.Reset();
     mod_icon_lost();
+    release_frame_grab();
     s.commands.Reset(); s.rtvs.Reset(); s.srvs.Reset(); s.fence.Reset(); s.device.Reset();
     if (s.fence_event) CloseHandle(s.fence_event);
     s.fence_event = nullptr;
@@ -743,6 +744,7 @@ void render(IDXGISwapChain* presented, UINT flags) {
     const bool item_browser_frame = item_browser_pending();
     const bool perf_frame = perf_hud_pending() || trainer_hud_pending();
     const bool hub_frame = hub_page_pending();
+    const bool grab_frame = frame_grab_pending();
     if (trainer_open_requested()) s.visible.store(true);
     if (dingosdk::drone::menu_flag().load()) s.visible.store(true); // `dronemenu`: the menu opens on its DRONE page
     if (dingosdk::overlay::menu_open_flag().exchange(false)) s.visible.store(true); // `menu`, or its controller bind
@@ -762,7 +764,8 @@ void render(IDXGISwapChain* presented, UINT flags) {
         }
         // Hidden, the overlay still draws while a notice or chat line is on screen.
         if (s.loaded_notice_posted && !notices_pending() && !chat_frame && !game_text_frame && !drone_hud_frame && !skate_hud_frame &&
-            !nametag_frame && !meat_frame && !item_browser_frame && !perf_frame && !hub_frame && !map_download_frame) return;
+            !nametag_frame && !meat_frame && !item_browser_frame && !perf_frame && !hub_frame && !map_download_frame &&
+            !grab_frame) return;
     } else if (!s.ui_was_interactive) {
         s.ui_was_interactive = true;
         s.last_model = {}; // Reopening immediately reads fresh state.
@@ -784,6 +787,8 @@ void render(IDXGISwapChain* presented, UINT flags) {
         restore_input(true);
         return;
     }
+    // A board turnaround takes the game's frame before anything of ReSkate's is drawn on it.
+    if (grab_frame) grab_presented_frame(s, frame.buffer.Get());
     ImGuiContext* previous = ImGui::GetCurrentContext();
     ImGui::SetCurrentContext(s.context);
     {
