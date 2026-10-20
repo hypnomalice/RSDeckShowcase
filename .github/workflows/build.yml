@@ -34,7 +34,7 @@ jobs:
 
       - name: Build
         run: |
-          cmake --build --preset release --parallel 4 --target dingosdk_runtime dingosdk_launcher dingosdk_turnaround_tests -- /clp:ErrorsOnly 2>&1 | Tee-Object -FilePath build.log
+          cmake --build --preset release --parallel 4 --target dingosdk_runtime dingosdk_launcher dingosdk_turnaround_tests 2>&1 | Tee-Object -FilePath build.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Test

@@ -1263,20 +1263,20 @@ void update_model(std::uintptr_t client, TickState& frame) {
     model.keyframe_smoothing = {dingosdk::replay_keyframes::available(), dingosdk::replay_keyframes::on(),
                                 dingosdk::replay_keyframes::smoothness()};
     {
-        const auto o = dingosdk::turnaround::current_options();
-        auto& t = model.turnaround;
-        t.available = true;
-        t.busy = dingosdk::turnaround::exporting();
-        t.format = o.format == dingosdk::turnaround::Format::apng ? 1 : o.format == dingosdk::turnaround::Format::webm ? 2 : 0;
-        t.transparent = o.transparent;
-        t.parts = o.parts;
-        t.matte = o.matte;
-        t.speed = static_cast<int>(std::lround(std::abs(o.spin) * 100));
-        t.spin_left = o.spin < 0;
-        t.frames = static_cast<int>(o.frames);
-        t.size = static_cast<int>(o.size);
-        t.fps = static_cast<int>(o.fps);
-        t.status = dingosdk::turnaround::last_message();
+        const auto turnaround_options = dingosdk::turnaround::current_options();
+        auto& turnaround_model = model.turnaround;
+        turnaround_model.available = true;
+        turnaround_model.busy = dingosdk::turnaround::exporting();
+        turnaround_model.format = turnaround_options.format == dingosdk::turnaround::Format::apng ? 1 : turnaround_options.format == dingosdk::turnaround::Format::webm ? 2 : 0;
+        turnaround_model.transparent = turnaround_options.transparent;
+        turnaround_model.parts = turnaround_options.parts;
+        turnaround_model.matte = turnaround_options.matte;
+        turnaround_model.speed = static_cast<int>(std::lround(std::abs(turnaround_options.spin) * 100));
+        turnaround_model.spin_left = turnaround_options.spin < 0;
+        turnaround_model.frames = static_cast<int>(turnaround_options.frames);
+        turnaround_model.size = static_cast<int>(turnaround_options.size);
+        turnaround_model.fps = static_cast<int>(turnaround_options.fps);
+        turnaround_model.status = dingosdk::turnaround::last_message();
     }
     model.bindings = dingosdk::local_profile_controller_bindings();
     model.parks = dingosdk::local_profile_parks();

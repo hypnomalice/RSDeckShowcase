@@ -246,7 +246,7 @@ void save(const Options& o) {
 } // namespace
 
 Options& options() noexcept {
-    static Options value = [] {
+    static Options kept = [] {
         Options o;
         try {
             std::ifstream in(settings_path());
@@ -261,7 +261,7 @@ Options& options() noexcept {
         } catch (...) {}
         return o;
     }();
-    return value;
+    return kept;
 }
 
 std::string set_option(std::string_view key, std::string_view value) {
