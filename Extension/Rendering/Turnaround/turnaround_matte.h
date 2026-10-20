@@ -21,4 +21,7 @@ Backgrounds measure_backgrounds(const PixelView& dark, const PixelView& light, R
 // keep the noise of the game's dithering and film grain from leaving the board faintly see-through.
 Image matte_pair(const PixelView& dark, const PixelView& light, Rect area, const Backgrounds& backgrounds,
                  float floor = 0.04f);
+// Without a second background to compare against: the board keyed out of every frame of a whole
+// turn (opaque captures of the same area) against the backdrop the turn reveals. See the .cpp.
+void key_against_backdrop(std::vector<Image>& frames);
 } // namespace dingosdk::turnaround

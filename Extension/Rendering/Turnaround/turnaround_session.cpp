@@ -51,85 +51,6 @@ Image opaque_image(const PixelView& view) {
     return out;
 }
 
-// Without a background of its own to swap, the board is keyed out against the backdrop. The
-// backdrop is found from the turn itself: a pixel the board leaves for much of the turn keeps one
-// colour then, the backdrop's; one the board (nearly) always covers has no steady colour, and there
-// the backdrop is taken from the row's ends, where the board never goes (the Board screen's
-// backdrop is a smooth vignette). An exact backdrop lets the key be tight, so a black grip against
-// the dark backdrop still reads as board. Matting (a stage that swaps the background) is better
-// still; this is for when there is none.
-void key_against_backdrop(std::vector<Image>& frames) {
-    if (frames.empty()) return;
-    const auto raw = frames;
-    const auto w = frames.front().width, h = frames.front().height;
-    constexpr std::uint32_t band = 6; // columns sampled at each end of a row
-    if (w < band * 4) return;
-    const auto luma = [](const std::uint8_t* p) { return (77 * p[0] + 150 * p[1] + 29 * p[2]) >> 8; };
-    Image plate(w, h);
-    std::vector<int> values(frames.size());
-    for (std::uint32_t y = 0; y < h; ++y) {
-        // The row's ends, over every frame.
-        std::array<std::vector<std::uint8_t>, 6> ends;
-        for (const auto& frame : frames)
-            for (std::uint32_t k = 0; k < band; ++k)
-                for (std::size_t c = 0; c < 3; ++c) ends[c].push_back(frame.at(k, y)[c]), ends[3 + c].push_back(frame.at(w - 1 - k, y)[c]);
-        std::array<float, 6> end_median{};
-        for (std::size_t k = 0; k < 6; ++k) {
-            std::nth_element(ends[k].begin(), ends[k].begin() + static_cast<std::ptrdiff_t>(ends[k].size() / 2), ends[k].end());
-            end_median[k] = ends[k][ends[k].size() / 2];
-        }
-        for (std::uint32_t x = 0; x < w; ++x) {
-            for (std::size_t f = 0; f < frames.size(); ++f) values[f] = luma(frames[f].at(x, y));
-            auto sorted = values;
-            std::nth_element(sorted.begin(), sorted.begin() + static_cast<std::ptrdiff_t>(sorted.size() / 2), sorted.end());
-            const int middle = sorted[sorted.size() / 2];
-            std::array<std::uint64_t, 3> sum{};
-            std::size_t steady = 0;
-            for (std::size_t f = 0; f < frames.size(); ++f)
-                if (std::abs(values[f] - middle) <= 4) {
-                    ++steady;
-                    for (std::size_t c = 0; c < 3; ++c) sum[c] += frames[f].at(x, y)[c];
-                }
-            auto* b = plate.at(x, y);
-            if (steady * 100 >= frames.size() * 35) {
-                for (std::size_t c = 0; c < 3; ++c) b[c] = static_cast<std::uint8_t>(sum[c] / steady);
-            } else {
-                const float t = static_cast<float>(x) / static_cast<float>(w - 1);
-                for (std::size_t c = 0; c < 3; ++c) b[c] = static_cast<std::uint8_t>(std::lround(end_median[c] + (end_median[3 + c] - end_median[c]) * t));
-            }
-        }
-    }
-    for (auto& frame : frames)
-        for (std::uint32_t y = 0; y < h; ++y)
-            for (std::uint32_t x = 0; x < w; ++x) {
-                auto* p = frame.at(x, y);
-                const auto* b = plate.at(x, y);
-                int distance = 0;
-                for (std::size_t c = 0; c < 3; ++c) distance = std::max(distance, std::abs(p[c] - b[c]));
-                const float alpha = std::clamp((static_cast<float>(distance) - 5.0f) / 15.0f, 0.0f, 1.0f);
-                if (alpha <= 0) { p[0] = p[1] = p[2] = p[3] = 0; continue; }
-                for (std::size_t c = 0; c < 3; ++c)
-                    p[c] = static_cast<std::uint8_t>(std::clamp(std::lround((p[c] - (1 - alpha) * b[c]) / alpha), 0L, 255L));
-                p[3] = static_cast<std::uint8_t>(std::lround(alpha * 255));
-            }
-    // A board is solid across: anything between its outermost keyed pixels in a row is board, even
-    // where part of a graphic matched the backdrop and keyed out.
-    for (std::size_t f = 0; f < frames.size(); ++f) {
-        auto& frame = frames[f];
-        for (std::uint32_t y = 0; y < h; ++y) {
-            std::int64_t first = -1, last = -1;
-            for (std::uint32_t x = 0; x < w; ++x)
-                if (frame.at(x, y)[3] >= 128) { if (first < 0) first = x; last = x; }
-            for (auto x = first + 1; first >= 0 && x < last; ++x) {
-                auto* p = frame.at(static_cast<std::uint32_t>(x), y);
-                if (p[3] == 255) continue;
-                std::copy_n(raw[f].at(static_cast<std::uint32_t>(x), y), 3, p);
-                p[3] = 255;
-            }
-        }
-    }
-}
-
 // The part of the area the board turned through: every pixel that is at all opaque and changes
 // over the turn. The game's own UI stays the same, so it falls outside.
 Rect turned_through(const std::vector<Image>& frames) {
@@ -156,8 +77,10 @@ bool Session::start(Inputs inputs) {
     angle_ = 0, wait_ = 0, light_ = false, posed_ = false, area_ = {}, work_scale_ = 1;
     captured_.clear();
     dark_.clear();
-    kept_at_.clear(), difference_.clear(), first_thumbnail_.clear();
+    kept_at_.clear(), difference_.clear(), thumbnails_.clear(), last_thumbnail_.clear();
     taken_ = 0, stride_ = 1, warmup_ = 45, period_ = 0;
+    turn_ = Turn::measure, still_ = 0, waited_ = 0, push_left_ = 0, steps_ = 0, steps_target_ = 0;
+    push_per_step_ = 0, push_owed_ = 0, strength_ = 1;
     std::string why;
     bool began = false;
     try { began = in_.stage && in_.stage->begin(why); } catch (const std::exception& error) { why = error.what(); }
@@ -202,11 +125,7 @@ bool Session::wants_frame() noexcept {
         finish("Turnaround cancelled.", true);
         return false;
     }
-    if (in_.stage->continuous()) {
-        // Let it get up to speed before the turn is counted.
-        if (warmup_) { --warmup_; return false; }
-        return true;
-    }
+    if (in_.stage->continuous()) return next_continuous();
     if (!posed_) {
         try {
             in_.stage->pose(static_cast<double>(angle_) / in_.options.frames, light_);
@@ -283,40 +202,135 @@ void Session::take_frame(const PixelView& frame) noexcept {
 }
 
 namespace {
-// A 24x48 grey thumbnail of a frame's area, for telling how far round the board is.
-std::vector<float> thumbnail(const Image& image) {
+// A 24x48 grey thumbnail of a frame's area, for telling how far round the board is and whether it
+// has stopped.
+std::vector<float> thumbnail(const PixelView& frame, Rect area) {
     constexpr std::uint32_t tw = 24, th = 48;
     std::vector<float> out(tw * th);
     for (std::uint32_t ty = 0; ty < th; ++ty)
         for (std::uint32_t tx = 0; tx < tw; ++tx) {
-            const auto x0 = tx * image.width / tw, x1 = std::max(x0 + 1, (tx + 1) * image.width / tw);
-            const auto y0 = ty * image.height / th, y1 = std::max(y0 + 1, (ty + 1) * image.height / th);
+            const auto x0 = tx * area.width / tw, x1 = std::max(x0 + 1, (tx + 1) * area.width / tw);
+            const auto y0 = ty * area.height / th, y1 = std::max(y0 + 1, (ty + 1) * area.height / th);
             float sum = 0;
-            for (auto y = y0; y < y1; ++y)
-                for (auto x = x0; x < x1; ++x) {
-                    const auto* p = image.at(x, y);
-                    sum += 0.299f * p[0] + 0.587f * p[1] + 0.114f * p[2];
+            for (auto y = y0; y < y1; y += 2)
+                for (auto x = x0; x < x1; x += 2) {
+                    const auto rgb = frame.rgb(area.x + x, area.y + y);
+                    sum += 0.299f * rgb[0] + 0.587f * rgb[1] + 0.114f * rgb[2];
                 }
-            out[ty * tw + tx] = sum / static_cast<float>((x1 - x0) * (y1 - y0));
+            out[ty * tw + tx] = sum / static_cast<float>(((x1 - x0 + 1) / 2) * ((y1 - y0 + 1) / 2));
         }
     return out;
 }
-constexpr std::size_t most_kept = 240;      // frames held at once while turning
-constexpr std::uint32_t longest_turn = 2400; // frames (40 s at 60) before giving up
+float unlike(const std::vector<float>& a, const std::vector<float>& b) {
+    float sum = 0;
+    for (std::size_t i = 0; i < a.size() && i < b.size(); ++i) sum += std::abs(a[i] - b[i]);
+    return sum / static_cast<float>(std::max<std::size_t>(a.size(), 1));
+}
+constexpr std::size_t most_kept = 300;       // pictures held at once
+constexpr std::uint32_t longest_turn = 2400; // frames (40 s at 60) to measure a turn in
 constexpr float moving = 6.0f;               // grey levels of change that say the board turns
+constexpr float still = 0.35f;               // ...and that say it has stopped
 } // namespace
 
+// Come round: the last few views match the first few again, after clearly different ones. Matching
+// a run of views, not one, keeps a board that started edge-on from "coming round" half way, when it
+// is edge-on again but turning to its other face. The place of the best match (with a parabola
+// through its neighbours), or 0.
+double Session::come_round(const std::vector<float>& small) {
+    constexpr std::size_t run = 4;
+    thumbnails_.push_back(small);
+    const auto n = thumbnails_.size();
+    if (n < run) return 0;
+    const auto p = n - run; // the candidate start of the second turn
+    float sum = 0;
+    for (std::size_t k = 0; k < run; ++k) sum += unlike(thumbnails_[p + k], thumbnails_[k]);
+    difference_.push_back(sum / run); // difference_[p]
+    const auto d = difference_.size();
+    if (d < 12) return 0;
+    const auto peak = *std::max_element(difference_.begin(), difference_.end());
+    if (peak <= moving) return 0;
+    const float a = difference_[d - 3], b = difference_[d - 2], c = difference_[d - 1];
+    if (!(b < 0.2f * peak && b <= a && b < c)) return 0;
+    const float curve = a - 2 * b + c;
+    return static_cast<double>(d - 2) + (curve > 0 ? 0.5 * (a - c) / curve : 0.0);
+}
+
+// Render thread, every presented frame, for a continuous stage: what the turnaround does now, and
+// whether this frame is wanted.
+bool Session::next_continuous() {
+    switch (turn_) {
+    case Turn::measure:
+        if (warmup_) { --warmup_; return false; } // up to speed first
+        return true;
+    case Turn::resting: return true;               // watched until it stops
+    case Turn::push:
+        if (push_left_ && --push_left_) return false;
+        in_.stage->hold(0);
+        turn_ = Turn::resting, still_ = 0, waited_ = 0;
+        return false;
+    case Turn::settling:
+        // Stopped: a few more frames for the game's temporal smoothing to let go of the motion.
+        if (wait_) { --wait_; return false; }
+        return true;
+    }
+    return false;
+}
+
 void Session::take_continuous(const PixelView& frame) {
+    const auto small = thumbnail(frame, area_);
+    const auto finish_turn = [&] {
+        in_.stage->end();
+        {
+            std::lock_guard lock(mutex_);
+            progress_.phase = Phase::encoding;
+            progress_.message = "Saving the turnaround...";
+        }
+        std::thread([this] { encode(); }).detach();
+    };
+    switch (turn_) {
+    case Turn::measure: {
+        // A whole turn at full strength, to know how far a push goes.
+        ++taken_;
+        period_ = come_round(small);
+        const auto peak = difference_.empty() ? 0.0f : *std::max_element(difference_.begin(), difference_.end());
+        if (period_ <= 0) {
+            if (taken_ > 240 && peak <= moving)
+                throw std::runtime_error("The board did not turn. Is the Board screen open, with the board on show?");
+            if (taken_ >= longest_turn) throw std::runtime_error("The board did not come all the way round.");
+            return;
+        }
+        // Steps of about a third of an output frame's turn, at least two frames of push each; a
+        // fast spin is pushed more gently instead.
+        steps_target_ = std::max<std::uint32_t>(in_.options.frames * 3 / 2, 48);
+        push_per_step_ = period_ / steps_target_;
+        if (push_per_step_ < 2) {
+            strength_ = std::max(0.08f, static_cast<float>(push_per_step_ / 2));
+            push_per_step_ = 2;
+        }
+        in_.stage->hold(0);
+        turn_ = Turn::resting, still_ = 0, waited_ = 0;
+        thumbnails_.clear(), difference_.clear();
+        period_ = 0;
+        {
+            std::lock_guard lock(mutex_);
+            progress_.steps = steps_target_;
+            progress_.step = 0;
+        }
+        return;
+    }
+    case Turn::resting:
+        still_ = !last_thumbnail_.empty() && unlike(small, last_thumbnail_) < still ? still_ + 1 : 0;
+        last_thumbnail_ = small;
+        if (still_ >= 3 || ++waited_ > 120) turn_ = Turn::settling, wait_ = in_.options.settle;
+        return;
+    case Turn::push: return;
+    case Turn::settling: break;
+    }
+    // At rest: this step's picture.
     const auto copy = copy_area(frame, area_);
     auto picture = opaque_image({copy.data(), area_.width, area_.height, area_.width * 4, frame.bgra});
     if (picture.height > 900) picture = fitted(picture, std::max(picture.width, picture.height) * 900 / picture.height);
-    const auto small = thumbnail(picture);
-    if (first_thumbnail_.empty()) first_thumbnail_ = small;
-    float difference = 0;
-    for (std::size_t i = 0; i < small.size(); ++i) difference += std::abs(small[i] - first_thumbnail_[i]);
-    difference /= static_cast<float>(small.size());
-    difference_.push_back(difference);
-    const auto n = taken_++;
+    const auto n = steps_++;
     if (n % stride_ == 0) {
         kept_at_.push_back(n);
         captured_.push_back(std::move(picture));
@@ -329,37 +343,25 @@ void Session::take_continuous(const PixelView& frame) {
     }
     {
         std::lock_guard lock(mutex_);
-        progress_.step = std::min<std::uint32_t>(n, progress_.steps - 1);
+        progress_.step = std::min(steps_, std::max<std::uint32_t>(progress_.steps, 1) - 1);
     }
-    // Come round: past a clearly different view, back to a low point of difference to the first.
-    const auto peak = *std::max_element(difference_.begin(), difference_.end());
-    const auto d = difference_.size();
-    if (d >= 12 && peak > moving) {
-        const float a = difference_[d - 3], b = difference_[d - 2], c = difference_[d - 1];
-        if (b < 0.2f * peak && b <= a && b < c) {
-            const float curve = a - 2 * b + c;
-            period_ = static_cast<double>(d - 2) + (curve > 0 ? 0.5 * (a - c) / curve : 0.0);
-        }
-    }
-    const bool stalled = taken_ > 240 && peak <= moving;
-    if (period_ <= 0 && !stalled && taken_ < longest_turn) return;
-    in_.stage->end();
-    if (period_ <= 0)
-        throw std::runtime_error(stalled ? "The board did not turn. Is the Board screen open, with the board on show?"
-                                         : "The board did not come all the way round.");
-    {
-        std::lock_guard lock(mutex_);
-        progress_.phase = Phase::encoding;
-        progress_.message = "Saving the turnaround...";
-    }
-    std::thread([this] { encode(); }).detach();
+    period_ = come_round(small);
+    if (period_ > 0) return finish_turn();
+    if (steps_ > steps_target_ * 4)
+        throw std::runtime_error("The board did not come all the way round in steps.");
+    // The next push: the same length every step, kept even over the turn.
+    push_owed_ += push_per_step_;
+    push_left_ = std::max<std::uint32_t>(1, static_cast<std::uint32_t>(push_owed_));
+    push_owed_ -= push_left_;
+    in_.stage->hold(strength_);
+    turn_ = Turn::push;
 }
 
 void Session::encode() noexcept {
     try {
         auto frames = std::move(captured_);
         if (!in_.stage->changes_background()) key_against_backdrop(frames);
-        if (period_ > 0) {
+        if (in_.stage->continuous() && period_ > 0) {
             // The frames nearest to evenly spaced points of the one turn.
             std::vector<Image> even;
             for (std::uint32_t j = 0; j < in_.options.frames; ++j) {

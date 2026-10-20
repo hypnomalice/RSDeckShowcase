@@ -1,5 +1,6 @@
 #include "turnaround_stage.h"
 #include "Extension/UI/Overlay/overlay.h"
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 
@@ -28,7 +29,7 @@ public:
             why = "The spin is set too gently to turn the board.";
             return false;
         }
-        spin_value.store(static_cast<std::int16_t>(std::lround(std::clamp(spin_, -1.0f, 1.0f) * 32767)));
+        hold(1);
         spin_axis.store(axis_);
         previous_ = DingoSDKOverlayGamepadFilter();
         DingoSDKOverlaySetGamepadFilter(&spin_filter);
@@ -37,6 +38,10 @@ public:
         return true;
     }
     void pose(double, bool) override {}
+    void hold(float strength) override {
+        const float value = std::clamp(spin_ * std::clamp(strength, 0.0f, 1.0f), -1.0f, 1.0f);
+        spin_value.store(static_cast<std::int16_t>(std::lround(value * 32767)));
+    }
     bool changes_background() const override { return false; }
     bool continuous() const override { return true; }
     void end() override {

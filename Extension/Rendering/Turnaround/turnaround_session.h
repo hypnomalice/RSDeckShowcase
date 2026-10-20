@@ -45,9 +45,12 @@ public:
     virtual bool changes_background() const = 0;
     // Gives it back as it was.
     virtual void end() = 0;
-    // A stage that turns the board on its own once begun (as the player's stick would), at a speed
-    // it does not know: every frame is taken, and the session finds where the turn comes round.
+    // A stage that turns the board on its own (as the player's stick would), at a speed it does not
+    // know, rather than to a pose: begun, it turns the board at full strength; hold() changes how
+    // hard (0 stops it). The session measures a whole turn, then steps the board round, taking each
+    // step once it has come to rest, so no frame carries the game's motion trails.
     virtual bool continuous() const { return false; }
+    virtual void hold(float /*strength, 0..1*/) {}
 };
 
 enum class Phase { idle, capturing, encoding, done, failed };
@@ -94,13 +97,20 @@ private:
     std::vector<std::uint8_t> dark_; // the dark capture of this angle, waiting for its light one
     std::uint32_t dark_pitch_{};
     std::vector<Image> captured_;
-    // Continuous stages: each taken frame's place in the turn, how unlike the first it looks, a
-    // small grey thumbnail of the first, and which frames are kept (every `stride`th).
-    std::vector<double> kept_at_;
-    std::vector<float> difference_;
-    std::vector<float> first_thumbnail_;
+    // Continuous stages (see Stage::continuous): measuring the turn, then stepping it.
+    enum class Turn { measure, resting, push, settling };
+    Turn turn_{};
+    std::vector<double> kept_at_;          // each kept picture's step
+    std::vector<float> difference_;        // how unlike the first each frame (measuring) or step looks
+    std::vector<std::vector<float>> thumbnails_; // every frame (measuring) or step, for coming round
+    std::vector<float> last_thumbnail_;
     std::uint32_t taken_{}, stride_{1}, warmup_{};
-    double period_{};
+    std::uint32_t still_{}, waited_{}, push_left_{}, steps_{}, steps_target_{};
+    double period_{};                      // frames (measuring), then steps, in one whole turn
+    double push_per_step_{}, push_owed_{};
+    float strength_{1};
     void take_continuous(const PixelView& frame);
+    bool next_continuous();
+    double come_round(const std::vector<float>& small);
 };
 } // namespace dingosdk::turnaround

@@ -102,6 +102,47 @@ void test_matte() {
     expect(same.at(0, 0)[3] == 255, "identical captures are taken as opaque, not empty");
 }
 
+// A whole turn of a board with a black grip over a dark radial vignette, the Board screen's worst
+// case: where the board has been, the backdrop must come back see-through, not as a dark ghost.
+void test_backdrop_key() {
+    constexpr std::uint32_t w = 300, h = 500, turn_frames = 120;
+    std::vector<Image> frames, truth;
+    for (std::uint32_t f = 0; f < turn_frames; ++f) {
+        const float angle = 6.2831853f * static_cast<float>(f) / turn_frames;
+        const float half_w = 55 * std::abs(std::cos(angle)) + 3, half_h = 200;
+        const bool grip = std::cos(angle) < 0;
+        Image frame(w, h), want(w, h);
+        for (std::uint32_t y = 0; y < h; ++y)
+            for (std::uint32_t x = 0; x < w; ++x) {
+                const float fx = static_cast<float>(x) + 0.5f, fy = static_cast<float>(y) + 0.5f;
+                const float rx = (fx - 120) / 300, ry = (fy - 230) / 400;
+                const float bg = 30 + 16 * std::max(0.0f, 1 - (rx * rx + ry * ry) * 2);
+                const float dx = std::abs(fx - 150) - half_w, dy = std::abs(fy - 250) - half_h;
+                const float cover = std::clamp(0.5f - std::max(dx, dy), 0.0f, 1.0f);
+                const float deck[3] = {grip ? 12.0f : 226.0f, grip ? 12.0f : 220.0f, grip ? 13.0f : 208.0f};
+                auto* p = frame.at(x, y);
+                for (int c = 0; c < 3; ++c) p[c] = static_cast<std::uint8_t>(std::lround(deck[c] * cover + (bg + static_cast<float>(c)) * (1 - cover)));
+                p[3] = 255;
+                want.at(x, y)[3] = static_cast<std::uint8_t>(std::lround(cover * 255));
+            }
+        frames.push_back(std::move(frame));
+        truth.push_back(std::move(want));
+    }
+    key_against_backdrop(frames);
+    std::uint64_t ghost = 0, lost = 0, background = 0, board = 0;
+    for (std::uint32_t f = 0; f < turn_frames; ++f)
+        for (std::uint32_t y = 0; y < h; ++y)
+            for (std::uint32_t x = 0; x < w; ++x) {
+                const auto want = truth[f].at(x, y)[3], got = frames[f].at(x, y)[3];
+                if (want == 0) ++background, ghost += got > 64;
+                if (want == 255) ++board, lost += got < 192;
+            }
+    std::printf("backdrop key: %.3f%% ghost, %.3f%% lost\n", 100.0 * static_cast<double>(ghost) / static_cast<double>(background),
+                100.0 * static_cast<double>(lost) / static_cast<double>(board));
+    expect(ghost * 1000 < background, "where the board has been comes back see-through");
+    expect(lost * 100 < board, "a black grip on the dark backdrop stays board");
+}
+
 void test_geometry() {
     const auto square = padded_square({10, 20, 30, 50}, 5, 200, 100);
     expect(square.width == 60 && square.height == 60, "padded_square grows and squares");
@@ -264,11 +305,19 @@ public:
     void pose(double t, bool l) override { turn = t, light = l; }
     bool changes_background() const override { return backgrounds_; }
     bool continuous() const override { return spin_ != 0; }
+    void hold(float strength) override { strength_ = strength; }
     void end() override { ended = true; }
-    // A turning stage moves on by `spin` of a turn every frame drawn.
+    // A turning stage moves on by `spin` of a turn every frame drawn, times how hard it is held. As
+    // the game's temporal smoothing does, a frame keeps a trace of the last one: a moving board
+    // leaves a trail, a still one does not.
     std::vector<std::uint8_t> frame() {
-        if (spin_ != 0 && !ended) turn += spin_;
-        return draw();
+        if (spin_ != 0 && !ended) turn += spin_ * strength_;
+        auto now = draw();
+        if (!last_.empty())
+            for (std::size_t i = 0; i < now.size(); ++i)
+                now[i] = static_cast<std::uint8_t>((now[i] * 3 + last_[i] + 2) / 4);
+        last_ = now;
+        return now;
     }
     std::vector<std::uint8_t> draw() const {
         constexpr std::uint32_t w = 1280, h = 720;
@@ -284,7 +333,7 @@ public:
                 if (x > 860 && x < 900 && y > 140 && y < 170) rgb[0] = rgb[1] = rgb[2] = 200; // UI that never moves
                 const float dx = std::abs(fx - cx) - half_w, dy = std::abs(fy - cy) - half_h;
                 const float cover = std::clamp(0.5f - std::max(dx, dy), 0.0f, 1.0f);
-                const float deck[3] = {back ? 20.0f : 40.0f, back ? 20.0f : 150.0f + 80 * fy / h, back ? 22.0f : 220.0f};
+                const float deck[3] = {back ? 12.0f : 40.0f, back ? 12.0f : 150.0f + 80 * fy / h, back ? 13.0f : 220.0f};
                 for (int c = 0; c < 3; ++c) rgb[c] = deck[c] * cover + rgb[c] * (1 - cover);
                 auto* p = out.data() + (std::size_t{y} * w + x) * 4;
                 for (int c = 0; c < 3; ++c) p[2 - c] = static_cast<std::uint8_t>(std::clamp(rgb[c] * 0.92f + 5, 0.0f, 255.0f));
@@ -297,6 +346,8 @@ public:
 private:
     bool backgrounds_;
     double spin_;
+    float strength_{1};
+    std::vector<std::uint8_t> last_;
 };
 
 void test_session(const std::filesystem::path& fonts, bool backgrounds, Format format, bool transparent, double spin = 0) {
@@ -321,7 +372,7 @@ void test_session(const std::filesystem::path& fonts, bool backgrounds, Format f
     in.stage = stage;
     expect(session.start(in), "a session starts");
     expect(!session.start(in), "a second session waits for the first");
-    for (int i = 0; i < 4000 && session.progress().phase == Phase::capturing; ++i) {
+    for (int i = 0; i < 20000 && session.progress().phase == Phase::capturing; ++i) {
         // A turning stage turns whether or not the frame is taken, as the game does.
         const bool wanted = session.wants_frame();
         const auto pixels = stage->frame();
@@ -341,6 +392,7 @@ void test_session(const std::filesystem::path& fonts, bool backgrounds, Format f
 
 int main(int argc, char** argv) {
     test_matte();
+    test_backdrop_key();
     test_geometry();
     test_png();
     test_gif();
@@ -350,7 +402,7 @@ int main(int argc, char** argv) {
         test_session(argv[1], true, Format::apng, true);
         test_session(argv[1], false, Format::gif, true);
         test_session(argv[1], true, Format::webm, false);
-        test_session(argv[1], false, Format::apng, true, 1.0 / 137.3); // turned by the stick, at a speed it must find
+        test_session(argv[1], false, Format::apng, true, 1.0 / 37.3); // turned by the stick, at a speed it must find
     }
     else std::printf("skipped: the parts card and sessions (pass the fonts folder)\n");
     if (!failures) std::printf("turnaround tests passed\n");
