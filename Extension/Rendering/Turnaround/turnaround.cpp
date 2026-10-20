@@ -178,7 +178,7 @@ std::vector<Part> worn_outfit() {
         }
     }
     std::stable_sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
-    for (auto& [order, part] : found) parts.push_back(std::move(part));
+    for (auto& entry : found) parts.push_back(std::move(entry.second));
     logging::log(logging::Level::info, logging::Channel::customization, "Turnaround: preset {} of {}, {} outfit item(s) of:{}", preset,
                  count, parts.size(), seen);
     return parts;
