@@ -1,5 +1,4 @@
 #include "turnaround_stage.h"
-#include "turnaround.h"
 #include "Extension/UI/Overlay/overlay.h"
 #include <atomic>
 #include <cmath>
@@ -56,5 +55,5 @@ private:
 };
 } // namespace
 
-std::shared_ptr<Stage> board_stage() { return std::make_shared<StickStage>(options().spin, options().spin_axis); }
+std::shared_ptr<Stage> board_stage(const Options& options) { return std::make_shared<StickStage>(options.spin, options.spin_axis); }
 } // namespace dingosdk::turnaround

@@ -254,6 +254,19 @@ struct GrindExitModel {
     int strength = 100; // pop-out strength, percent (10-100)
 };
 
+// Board turnarounds (Extension/Rendering/Turnaround): the choices the next one is made with, as
+// the Addons page shows them, and what the last one said.
+struct TurnaroundModel {
+    bool available = false, busy = false;
+    int format = 0; // 0 GIF, 1 APNG, 2 WebM
+    bool transparent = true, parts = true;
+    std::array<std::uint8_t, 3> matte{24, 25, 28};
+    int speed = 50;      // percent of the stick
+    bool spin_left = false;
+    int frames = 48, size = 512, fps = 24;
+    std::string status;
+};
+
 // Keyframe smoothing (Extension/ReplayKeyframes/replay_keyframes.h): started, switched on, and how
 // smooth (0..1) when on.
 struct KeyframeSmoothingModel {
@@ -285,6 +298,7 @@ struct Model {
     RoadRashModel road_rash;
     BoardBreakModel board_break;
     GrindExitModel grind_exit;
+    TurnaroundModel turnaround;
     KeyframeSmoothingModel keyframe_smoothing;
     ObjectPersistenceModel object_persistence;
     ParkEditorModel editor;

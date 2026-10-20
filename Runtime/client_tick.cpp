@@ -21,6 +21,8 @@
 #include "Extension/BoardBreak/board_break_audio.h"
 #include "Extension/ReplayKeyframes/replay_keyframes.h"
 #include "Extension/Skater/grind_exit_control.h"
+#include "Extension/Rendering/Turnaround/turnaround.h"
+#include "Extension/Rendering/Turnaround/turnaround_session.h"
 #include "Extension/Skater/camera_observer.h"
 #include "Extension/UI/NativeMenu/native_menu.h"
 #include "Extension/Multiplayer/Hud/native_party.h"
@@ -57,6 +59,7 @@
 #include <dxgi1_4.h>
 #include <Psapi.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <optional>
 #include <array>
@@ -1259,6 +1262,22 @@ void update_model(std::uintptr_t client, TickState& frame) {
                         dingosdk::grind_exit_control::strength()};
     model.keyframe_smoothing = {dingosdk::replay_keyframes::available(), dingosdk::replay_keyframes::on(),
                                 dingosdk::replay_keyframes::smoothness()};
+    {
+        const auto o = dingosdk::turnaround::current_options();
+        auto& t = model.turnaround;
+        t.available = true;
+        t.busy = dingosdk::turnaround::exporting();
+        t.format = o.format == dingosdk::turnaround::Format::apng ? 1 : o.format == dingosdk::turnaround::Format::webm ? 2 : 0;
+        t.transparent = o.transparent;
+        t.parts = o.parts;
+        t.matte = o.matte;
+        t.speed = static_cast<int>(std::lround(std::abs(o.spin) * 100));
+        t.spin_left = o.spin < 0;
+        t.frames = static_cast<int>(o.frames);
+        t.size = static_cast<int>(o.size);
+        t.fps = static_cast<int>(o.fps);
+        t.status = dingosdk::turnaround::last_message();
+    }
     model.bindings = dingosdk::local_profile_controller_bindings();
     model.parks = dingosdk::local_profile_parks();
     model.world = dingosdk::local_profile_world_layers();
