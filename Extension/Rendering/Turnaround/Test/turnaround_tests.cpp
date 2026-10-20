@@ -8,6 +8,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <algorithm>
+#include <array>
 #include <string>
 
 // Turnaround pictures without the game: matting, resizing, the parts card and the file formats.
@@ -205,6 +207,26 @@ void test_gif() {
     expect(total == 10, "GIF delays add up to the clip's length");
 }
 
+void test_webm() {
+    Animation animation;
+    animation.fps = 30;
+    for (int i = 0; i < 4; ++i) animation.frames.push_back(board(48, static_cast<float>(i) * 0.4f));
+    const auto webm = encode_webm(animation);
+    const auto has = [&](std::initializer_list<std::uint8_t> bytes) {
+        return std::search(webm.begin(), webm.end(), bytes.begin(), bytes.end()) != webm.end();
+    };
+    expect(webm.size() > 4 && webm[0] == 0x1a && webm[1] == 0x45 && webm[2] == 0xdf && webm[3] == 0xa3, "WebM starts with an EBML header");
+    expect(has({'V', '_', 'V', 'P', '8'}), "WebM track is VP8");
+    expect(has({0x53, 0xc0}), "a see-through WebM marks its track AlphaMode");
+    expect(has({0x9d, 0x01, 0x2a}), "WebM frames are VP8 key frames");
+    Animation opaque;
+    opaque.frames = {over_matte(board(48, 0), {0, 0, 0})};
+    const auto flat = encode_webm(opaque);
+    const std::array<std::uint8_t, 2> alpha_mode{0x53, 0xc0};
+    expect(std::search(flat.begin(), flat.end(), alpha_mode.begin(), alpha_mode.end()) == flat.end(),
+           "an opaque WebM has no alpha");
+}
+
 void test_panel(const std::filesystem::path& fonts) {
     const auto load = [&](const char* name) {
         std::ifstream in(fonts / name, std::ios::binary);
@@ -234,6 +256,7 @@ int main(int argc, char** argv) {
     test_geometry();
     test_png();
     test_gif();
+    test_webm();
     if (argc > 1) test_panel(argv[1]);
     else std::printf("skipped: the parts card (pass the fonts folder)\n");
     if (!failures) std::printf("turnaround tests passed\n");

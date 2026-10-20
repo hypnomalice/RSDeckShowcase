@@ -27,4 +27,12 @@ struct GifOptions {
 // An animated GIF that loops forever: one 256-colour palette for every frame.
 // GIF timing is in hundredths of a second, so the frame rate is kept on average, at most 50.
 std::vector<std::uint8_t> encode_gif(const Animation& animation, const GifOptions& options = {});
+
+struct WebmOptions {
+    int quality{12};       // VP8 quantizer index for the colour, 0 (best) .. 127
+    int alpha_quality{4};  // and for the transparency, which shows every block edge, so finer
+};
+// A WebM with VP8 video; frames with any transparency carry it as VP8 alpha (Chrome, Firefox and
+// ffmpeg's libvpx decoder show it). WebM has no loop flag: players loop it themselves.
+std::vector<std::uint8_t> encode_webm(const Animation& animation, const WebmOptions& options = {});
 } // namespace dingosdk::turnaround
