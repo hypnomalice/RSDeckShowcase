@@ -310,6 +310,7 @@ public:
     void pose(double t, bool l) override { turn = t, light = l; }
     bool changes_background() const override { return backgrounds_; }
     bool continuous() const override { return spin_ != 0; }
+    bool slow_down(double ratio) override { spin_ *= ratio; ++slowed; return true; }
     void end() override { ended = true; }
     // A turning stage moves on by `spin` of a turn every frame drawn. As the game's temporal
     // smoothing does, a frame keeps a trace of the last one.
@@ -355,7 +356,7 @@ public:
     }
     double turn{};
     bool light{}, began{}, ended{}, skater{};
-    unsigned drawn{};
+    unsigned drawn{}, slowed{};
 private:
     bool backgrounds_;
     double spin_;
@@ -363,7 +364,7 @@ private:
 };
 
 void test_session(const std::filesystem::path& fonts, bool backgrounds, Format format, bool transparent, double spin = 0,
-                  Subject subject = Subject::board) {
+                  Subject subject = Subject::board, std::uint32_t frames = 16) {
     const auto load = [&](const char* name) {
         std::ifstream in(fonts / name, std::ios::binary);
         return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(in), {});
@@ -377,7 +378,7 @@ void test_session(const std::filesystem::path& fonts, bool backgrounds, Format f
     in.options.subject = subject;
     in.options.format = format;
     in.options.transparent = transparent;
-    in.options.frames = 16;
+    in.options.frames = frames;
     in.options.size = 256;
     in.options.settle = 2;
     in.title = "Test Deck: \"blue\"";
@@ -399,6 +400,7 @@ void test_session(const std::filesystem::path& fonts, bool backgrounds, Format f
     if (progress.phase != Phase::done) std::printf("session: %s\n", progress.message.c_str());
     expect(progress.phase == Phase::done, "a session saves its turnaround");
     expect(stage->began && stage->ended, "the stage is taken over and given back");
+    if (spin != 0 && frames > 40) expect(stage->slowed > 0, "a turn too fast for the frames wanted is slowed");
     std::error_code error;
     expect(std::filesystem::file_size(progress.file, error) > 1000, "the turnaround file is written");
     if (format == Format::apng && transparent) {
@@ -427,6 +429,7 @@ int main(int argc, char** argv) {
         test_session(argv[1], true, Format::webm, false);
         test_session(argv[1], false, Format::apng, true, 1.0 / 37.3); // turned by the stick, at a speed it must find
         test_session(argv[1], false, Format::apng, true, 1.0 / 41.7, Subject::skater); // the Skaters screen
+        test_session(argv[1], false, Format::webm, true, 1.0 / 37.3, Subject::board, 120); // too fast for 120 frames: slowed
     }
     else std::printf("skipped: the parts card and sessions (pass the fonts folder)\n");
     if (!failures) std::printf("turnaround tests passed\n");

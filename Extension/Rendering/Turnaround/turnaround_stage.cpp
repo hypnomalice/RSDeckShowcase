@@ -24,7 +24,7 @@ void spin_filter(unsigned, overlay::GamepadValues& pad) noexcept {
 
 class StickStage final : public Stage {
 public:
-    StickStage(float spin, std::uint8_t axis) : spin_(spin), axis_(axis) {}
+    StickStage(float spin, std::uint8_t axis, bool skater) : spin_(spin), axis_(axis), skater_(skater) {}
     bool begin(std::string& why) override {
         if (std::abs(spin_) < 0.05f) {
             why = "The spin is set too gently to turn the board.";
@@ -36,11 +36,30 @@ public:
         DingoSDKOverlaySetGamepadFilter(&spin_filter);
         DingoSDKOverlaySetVirtualPad(true);
         // The board's shadow on the backdrop would be cut out with it: shadows off while it turns.
-        queue_console("turnaround shadows off");
+        queue_console(skater_ ? "turnaround shadows off skater" : "turnaround shadows off");
         held_ = true;
         return true;
     }
     void pose(double, bool) override {}
+    // The stick has a dead zone (XInput's is about a quarter of the way) and the speed grows from
+    // its edge, so a slower turn is asked for from there.
+    bool slow_down(double ratio) override {
+        constexpr float dead = 0.24f, least = 0.27f;
+        const float now = std::abs(spin_) * strength_;
+        const float next = std::max(least, dead + (now - dead) * static_cast<float>(std::clamp(ratio, 0.05, 1.0)));
+        if (next >= now - 0.005f) return false;
+        faster_ = strength_;
+        strength_ = next / std::abs(spin_);
+        hold(strength_);
+        return true;
+    }
+    bool speed_up() override {
+        if (faster_ <= strength_) return false;
+        strength_ = (strength_ + faster_) / 2;
+        faster_ = strength_;
+        hold(strength_);
+        return true;
+    }
     void hold(float strength) {
         const float value = std::clamp(spin_ * std::clamp(strength, 0.0f, 1.0f), -1.0f, 1.0f);
         spin_value.store(static_cast<std::int16_t>(std::lround(value * 32767)));
@@ -59,10 +78,14 @@ public:
 private:
     float spin_;
     std::uint8_t axis_;
+    bool skater_;
+    float strength_{1}, faster_{1};
     overlay::GamepadFilter previous_{};
     bool held_{};
 };
 } // namespace
 
-std::shared_ptr<Stage> board_stage(const Options& options) { return std::make_shared<StickStage>(options.spin, options.spin_axis); }
+std::shared_ptr<Stage> board_stage(const Options& options) {
+    return std::make_shared<StickStage>(options.spin, options.spin_axis, options.subject == Subject::skater);
+}
 } // namespace dingosdk::turnaround

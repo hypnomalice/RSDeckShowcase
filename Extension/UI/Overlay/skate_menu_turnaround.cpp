@@ -127,7 +127,7 @@ void turnaround_addon(SkateMenu& menu, const Model& model, const CallbacksV3& ca
     int seconds = shown("seconds", t.seconds <= 2 ? 0 : t.seconds <= 3 ? 1 : t.seconds <= 4 ? 2 : t.seconds <= 6 ? 3 : 4);
     if (choice(menu, "turnaround-seconds", seconds, {"2 s", "3 s", "4 s", "6 s", "8 s"}, can))
         picked("seconds", seconds), set("seconds", std::array{"2", "3", "4", "6", "8"}[static_cast<std::size_t>(seconds)]);
-    field(menu, "Frame rate", "Frames a second when it plays. 60 is the smoothest (APNG and WebM; a GIF plays at most 50). For 60 at long turn times, a slower spin gives more frames to choose from.");
+    field(menu, "Frame rate", "Frames a second when it plays. 60 is the smoothest (APNG and WebM; a GIF plays at most 50). When the spin is too fast to give every frame its own picture, it slows itself down and turns again.");
     int fps = shown("fps", t.fps <= 15 ? 0 : t.fps <= 24 ? 1 : t.fps <= 30 ? 2 : 3);
     if (choice(menu, "turnaround-fps", fps, {"15", "24", "30", "60"}, can))
         picked("fps", fps), set("fps", std::array{"15", "24", "30", "60"}[static_cast<std::size_t>(fps)]);

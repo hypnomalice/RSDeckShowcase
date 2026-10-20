@@ -56,6 +56,11 @@ public:
     // speed it does not know, rather than to a pose: every frame is taken, and the session finds
     // where the turn comes round.
     virtual bool continuous() const { return false; }
+    // A continuous stage that turns too fast for the frames wanted (a whole turn in fewer frames
+    // than the animation has) is asked to turn slower: `ratio` of its speed now, about. False when
+    // it cannot. speed_up goes back part of the way (it slowed so much it stopped).
+    virtual bool slow_down(double /*ratio*/) { return false; }
+    virtual bool speed_up() { return false; }
 };
 
 enum class Phase { idle, capturing, encoding, done, failed };
@@ -107,10 +112,11 @@ private:
     std::vector<float> difference_;        // how unlike the start each frame looks
     std::vector<float> long_difference_;   // the same over a longer run of views
     std::vector<std::vector<float>> thumbnails_; // every frame, for coming round
-    std::uint32_t taken_{}, stride_{1}, warmup_{};
+    std::uint32_t taken_{}, stride_{1}, warmup_{}, slowdowns_{};
     double period_{};                      // frames in one whole turn
     std::chrono::steady_clock::time_point started_{};
     void take_continuous(const PixelView& frame);
+    void turn_again(const char* message);
     bool next_continuous();
     double come_round(const std::vector<float>& small);
 };

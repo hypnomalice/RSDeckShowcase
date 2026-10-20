@@ -180,7 +180,7 @@ bool Session::start(Inputs inputs) {
     captured_.clear();
     dark_.clear();
     kept_at_.clear(), difference_.clear(), long_difference_.clear(), thumbnails_.clear();
-    taken_ = 0, stride_ = 1, warmup_ = 45, period_ = 0;
+    taken_ = 0, stride_ = 1, warmup_ = 45, period_ = 0, slowdowns_ = 0;
     started_ = std::chrono::steady_clock::now();
     std::string why;
     bool began = false;
@@ -427,9 +427,21 @@ void Session::take_continuous(const PixelView& frame) {
     period_ = come_round(small);
     if (period_ <= 0) {
         const auto peak = difference_.empty() ? 0.0f : *std::max_element(difference_.begin(), difference_.end());
+        if (taken_ > 240 && peak <= moving && slowdowns_ && slowdowns_ < 9 && in_.stage->speed_up()) {
+            slowdowns_ = 9; // slowed until it stopped: a little faster, and no slower again
+            turn_again("Turning a little faster...");
+            return;
+        }
         if (taken_ > 240 && peak <= moving)
             throw std::runtime_error(std::string("The ") + noun(in_.options.subject) + " did not turn. " + screen_hint(in_.options.subject));
         if (taken_ >= longest_turn) throw std::runtime_error(std::string("The ") + noun(in_.options.subject) + " did not come all the way round.");
+        return;
+    }
+    // Too fast for the frames wanted (60 a second over a long turn): the same frame would show
+    // several times over. Slower, and again.
+    if (period_ < in_.options.frames * 0.9 && slowdowns_ < 3 && in_.stage->slow_down(period_ / in_.options.frames)) {
+        ++slowdowns_;
+        turn_again("Turning slower, for every frame to be its own...");
         return;
     }
     in_.stage->end();
@@ -439,6 +451,16 @@ void Session::take_continuous(const PixelView& frame) {
         progress_.message = "Saving the fit check...";
     }
     std::thread([this] { encode(); }).detach();
+}
+
+// Starts the capture over (the stage now turns at another speed): what was taken is let go.
+void Session::turn_again(const char* message) {
+    captured_.clear(), kept_at_.clear(), difference_.clear(), long_difference_.clear(), thumbnails_.clear();
+    taken_ = 0, stride_ = 1, warmup_ = 45, period_ = 0;
+    started_ = std::chrono::steady_clock::now();
+    std::lock_guard lock(mutex_);
+    progress_.step = 0;
+    progress_.message = message;
 }
 
 void Session::encode() noexcept {
