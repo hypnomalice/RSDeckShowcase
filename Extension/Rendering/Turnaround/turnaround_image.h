@@ -52,6 +52,8 @@ Rect united(Rect a, Rect b) noexcept;
 Rect padded_square(Rect rect, std::uint32_t margin, std::uint32_t width, std::uint32_t height) noexcept;
 // The part of `image` inside `rect`; pixels outside the image are transparent.
 Image cropped(const Image& image, Rect rect);
+// `image` resized to exactly `width` x `height` (filtered as fitted is).
+Image resized(const Image& image, std::uint32_t width, std::uint32_t height);
 // `image` resized to fit inside `size` x `size` (keeping its shape, centred, transparent around it),
 // filtered in premultiplied alpha so edges do not pick up the colour of transparent pixels.
 Image fitted(const Image& image, std::uint32_t size);

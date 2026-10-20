@@ -92,11 +92,8 @@ Image cropped(const Image& image, Rect rect) {
     return out;
 }
 
-Image fitted(const Image& image, std::uint32_t size) {
-    if (image.empty() || !size) return {};
-    const double scale = static_cast<double>(size) / std::max(image.width, image.height);
-    const auto w = std::max<std::uint32_t>(1, static_cast<std::uint32_t>(std::lround(image.width * scale)));
-    const auto h = std::max<std::uint32_t>(1, static_cast<std::uint32_t>(std::lround(image.height * scale)));
+Image resized(const Image& image, std::uint32_t w, std::uint32_t h) {
+    if (image.empty() || !w || !h) return {};
     const auto columns = area_taps(image.width, w), rows = area_taps(image.height, h);
     // Horizontal pass into premultiplied floats, then vertical.
     std::vector<float> wide(std::size_t{w} * image.height * 4);
@@ -112,8 +109,7 @@ Image fitted(const Image& image, std::uint32_t size) {
             }
             std::copy_n(sum, 4, wide.data() + (std::size_t{y} * w + x) * 4);
         }
-    Image out(size, size);
-    const auto left = (size - w) / 2, top = (size - h) / 2;
+    Image out(w, h);
     for (std::uint32_t y = 0; y < h; ++y)
         for (std::uint32_t x = 0; x < w; ++x) {
             const auto& tap = rows[y];
@@ -122,12 +118,24 @@ Image fitted(const Image& image, std::uint32_t size) {
                 const auto* p = wide.data() + ((tap.first + k) * w + x) * 4;
                 for (int c = 0; c < 4; ++c) sum[c] += p[c] * tap.weights[k];
             }
-            auto* d = out.at(left + x, top + y);
+            auto* d = out.at(x, y);
             const float alpha = std::clamp(sum[3], 0.0f, 255.0f);
             d[3] = static_cast<std::uint8_t>(std::lround(alpha));
             for (int c = 0; c < 3; ++c)
                 d[c] = d[3] ? static_cast<std::uint8_t>(std::clamp(std::lround(sum[c] * 255.0f / alpha), 0L, 255L)) : 0;
         }
+    return out;
+}
+
+Image fitted(const Image& image, std::uint32_t size) {
+    if (image.empty() || !size) return {};
+    const double scale = static_cast<double>(size) / std::max(image.width, image.height);
+    const auto w = std::max<std::uint32_t>(1, static_cast<std::uint32_t>(std::lround(image.width * scale)));
+    const auto h = std::max<std::uint32_t>(1, static_cast<std::uint32_t>(std::lround(image.height * scale)));
+    const auto small = resized(image, w, h);
+    Image out(size, size);
+    const auto left = (size - w) / 2, top = (size - h) / 2;
+    for (std::uint32_t y = 0; y < h; ++y) std::copy_n(small.at(0, y), std::size_t{w} * 4, out.at(left, top + y));
     return out;
 }
 

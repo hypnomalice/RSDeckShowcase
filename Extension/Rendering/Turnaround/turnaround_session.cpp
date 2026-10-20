@@ -231,7 +231,8 @@ float unlike(const std::vector<float>& a, const std::vector<float>& b) {
     for (std::size_t i = 0; i < a.size() && i < b.size(); ++i) sum += std::abs(a[i] - b[i]);
     return sum / static_cast<float>(std::max<std::size_t>(a.size(), 1));
 }
-constexpr std::size_t most_kept = 240;       // pictures held at once
+constexpr std::size_t most_kept = 240;       // pictures held at once, at most...
+constexpr std::size_t kept_bytes = 700u << 20; // ...and in bytes
 constexpr std::uint32_t longest_turn = 2400; // frames (40 s at 60) to measure a turn in
 constexpr float moving = 6.0f;               // grey levels of change that say the board turns
 } // namespace
@@ -273,12 +274,17 @@ void Session::take_continuous(const PixelView& frame) {
     const auto small = thumbnail(frame, area_);
     const auto copy = copy_area(frame, area_);
     auto picture = opaque_image({copy.data(), area_.width, area_.height, area_.width * 4, frame.bgra});
-    if (picture.height > 760) picture = fitted(picture, std::max(picture.width, picture.height) * 760 / picture.height);
+    // Kept at about the size the board will be shown at (it fills most of the area's height), not
+    // bigger: no detail is lost, and a whole turn fits in memory.
+    const auto keep_height = std::clamp<std::uint32_t>(in_.options.size * 5 / 4, 480, picture.height);
+    if (keep_height < picture.height)
+        picture = resized(picture, std::max<std::uint32_t>(1, picture.width * keep_height / picture.height), keep_height);
+    const auto most = std::clamp<std::size_t>(kept_bytes / std::max<std::size_t>(picture.rgba.size(), 1), 60, most_kept);
     const auto n = taken_++;
     if (n % stride_ == 0) {
         kept_at_.push_back(n);
         captured_.push_back(std::move(picture));
-        if (captured_.size() > most_kept) { // keep every other one, and from now on every other
+        if (captured_.size() > most) { // keep every other one, and from now on every other
             std::size_t w = 0;
             for (std::size_t r = 0; r < captured_.size(); r += 2) captured_[w] = std::move(captured_[r]), kept_at_[w++] = kept_at_[r];
             captured_.resize(w), kept_at_.resize(w);
@@ -342,7 +348,7 @@ void Session::encode() noexcept {
         std::vector<std::uint8_t> bytes;
         switch (o.format) {
         case Format::apng: bytes = encode_apng(animation); break;
-        case Format::webm: bytes = encode_webm(animation); break;
+        case Format::webm: bytes = encode_webm(animation, {.quality = 1, .alpha_quality = 0}); break; // the highest VP8 has
         default: bytes = encode_gif(animation, {.fringe = o.matte, .dither = true}); break;
         }
         // The deck's name, kept to what a file name may hold.
