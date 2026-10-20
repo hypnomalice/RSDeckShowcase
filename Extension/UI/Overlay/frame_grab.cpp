@@ -1,6 +1,9 @@
 #include "overlay_internal.h"
 #include "Engine/Core/Log/logging.h"
 #include <cmath>
+#include <algorithm>
+#include <array>
+#include <cfloat>
 #include <cstring>
 
 // Reads a presented frame back from the GPU for the board turnaround (overlay.h, FrameGrabHost).
@@ -172,5 +175,38 @@ void grab_presented_frame(State& s, ID3D12Resource* buffer) {
     try { h->take_frame(frame); } catch (...) {}
     const D3D12_RANGE nothing{};
     g.readback->Unmap(0, &nothing);
+}
+// The turnaround's banner, top centre, while one is being made: so it is plain that the board is
+// being recorded, and how to stop it. Drawn after the frame was taken, so it is never in a turnaround.
+void draw_turnaround_banner() {
+    const auto* h = host();
+    if (!h || !h->banner) return;
+    std::array<char, 160> text{};
+    bool recording = false;
+    try {
+        if (!h->banner(text.data(), text.size(), &recording)) return;
+    } catch (...) { return; }
+    text.back() = 0;
+    auto& s = state();
+    auto* font = s.menu.bold ? s.menu.bold : ImGui::GetFont();
+    const auto display = ImGui::GetIO().DisplaySize;
+    const float scale = std::clamp(display.y / 1080.0f, 0.75f, 3.0f);
+    const float size = 20 * scale, pad = 14 * scale, dot = recording ? 7 * scale : 0;
+    const auto extent = font->CalcTextSizeA(size, FLT_MAX, 0, text.data());
+    const float width = extent.x + pad * 2 + (dot ? dot * 2 + pad * 0.8f : 0), height = extent.y + pad * 1.2f;
+    const ImVec2 at((display.x - width) * 0.5f, 18 * scale);
+    auto* draw = ImGui::GetForegroundDrawList();
+    draw->AddRectFilled(at, ImVec2(at.x + width, at.y + height), IM_COL32(14, 14, 16, 235), height * 0.5f);
+    draw->AddRect(at, ImVec2(at.x + width, at.y + height), recording ? IM_COL32(230, 48, 48, 255) : IM_COL32(1, 131, 255, 255),
+                  height * 0.5f, 0, 2 * scale);
+    float x = at.x + pad;
+    if (recording) {
+        // A slow pulse, like a camera's recording light.
+        const float pulse = 0.55f + 0.45f * std::sin(static_cast<float>(ImGui::GetTime()) * 4.0f);
+        draw->AddCircleFilled(ImVec2(x + dot, at.y + height * 0.5f), dot,
+                              IM_COL32(235, 52, 52, static_cast<int>(130 + 125 * pulse)));
+        x += dot * 2 + pad * 0.8f;
+    }
+    draw->AddText(font, size, ImVec2(x, at.y + (height - extent.y) * 0.5f), IM_COL32(245, 246, 248, 255), text.data());
 }
 } // namespace dingosdk::overlay::detail

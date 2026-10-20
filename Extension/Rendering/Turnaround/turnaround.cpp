@@ -23,6 +23,7 @@
 #include <atomic>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 
 namespace dingosdk::turnaround {
 namespace {
@@ -138,7 +139,21 @@ void frame_grab_take(const overlay::GrabbedFrame& frame) noexcept {
     }
     session().take_frame({frame.data, frame.width, frame.height, frame.pitch, frame.bgra});
 }
-constexpr overlay::FrameGrabHost frame_grab_host{&frame_grab_active, &frame_grab_wants, &frame_grab_take};
+bool frame_grab_banner(char* text, std::size_t size, bool* recording) noexcept {
+    try {
+        const auto progress = session().progress();
+        std::string line;
+        if (progress.phase == Phase::capturing)
+            line = progress.step ? std::format("RECORDING TURNAROUND  {} frames  -  V to stop", progress.step)
+                                 : std::string("RECORDING TURNAROUND  -  hands off  -  V to stop");
+        else if (progress.phase == Phase::encoding) line = "SAVING TURNAROUND...";
+        else return false;
+        *recording = progress.phase == Phase::capturing;
+        std::snprintf(text, size, "%s", line.c_str());
+        return session().busy();
+    } catch (...) { return false; }
+}
+constexpr overlay::FrameGrabHost frame_grab_host{&frame_grab_active, &frame_grab_wants, &frame_grab_take, &frame_grab_banner};
 } // namespace
 
 const overlay::FrameGrabHost* frame_grab() noexcept { return &frame_grab_host; }
@@ -288,7 +303,7 @@ Options current_options() {
 
 std::string last_message() {
     const auto progress = session().progress();
-    if (progress.phase == Phase::capturing) return std::format("Turning the board... {} / {}", progress.step, progress.steps);
+    if (progress.phase == Phase::capturing) return std::format("Recording... {} frames", progress.step);
     return progress.message;
 }
 

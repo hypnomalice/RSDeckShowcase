@@ -278,6 +278,7 @@ void destroy_graphics();
 bool frame_grab_pending();
 void grab_presented_frame(State& s, ID3D12Resource* buffer);
 void release_frame_grab();
+void draw_turnaround_banner();
 ComPtr<IUnknown> object_identity(IUnknown* object);
 Binding* find_binding(IUnknown* identity);
 void guarded_render(IDXGISwapChain* chain, UINT flags) noexcept;

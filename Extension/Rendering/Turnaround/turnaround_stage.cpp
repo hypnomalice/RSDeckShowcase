@@ -41,7 +41,7 @@ public:
         return true;
     }
     void pose(double, bool) override {}
-    void hold(float strength) override {
+    void hold(float strength) {
         const float value = std::clamp(spin_ * std::clamp(strength, 0.0f, 1.0f), -1.0f, 1.0f);
         spin_value.store(static_cast<std::int16_t>(std::lround(value * 32767)));
     }

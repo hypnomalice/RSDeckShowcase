@@ -826,6 +826,7 @@ void render(IDXGISwapChain* presented, UINT flags) {
     draw_perf_hud();
     draw_trainer_hud();
     draw_notices();
+    draw_turnaround_banner();
     draw_item_browser();
     draw_chat();
     draw_map_download();

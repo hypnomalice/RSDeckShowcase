@@ -253,7 +253,10 @@ extern "C" __declspec(dllexport) BOOL WINAPI DingoSDKDebugInitialize() {
         });
         // V on a Board tab: through the console, so the turnaround starts on the game thread (it reads
         // the selected preset's board there).
-        dingosdk::item_browser::set_turnaround_request([] { dingosdk::turnaround::queue_console("turnaround export"); });
+        dingosdk::item_browser::set_turnaround_request([] {
+            if (dingosdk::turnaround::exporting()) dingosdk::turnaround::cancel_export(); // V again: stop
+            else dingosdk::turnaround::queue_console("turnaround export");
+        });
         dingosdk::overlay::set_game_text_feed(dingosdk::multiplayer::skate_debug_text);
         dingosdk::overlay::set_skate_hud_feed(dingosdk::multiplayer::skate_hud);
         dingosdk::overlay::set_nametag_feed(dingosdk::multiplayer::custom_nametags);

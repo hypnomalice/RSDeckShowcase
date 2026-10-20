@@ -524,6 +524,9 @@ struct FrameGrabHost {
     bool (*active)() noexcept {};
     bool (*wants_frame)() noexcept {};
     void (*take_frame)(const GrabbedFrame &frame) noexcept {};
+    // The banner shown while one is being made: false for none; otherwise its line, and whether it
+    // is still recording (a red dot) rather than saving.
+    bool (*banner)(char *text, std::size_t size, bool *recording) noexcept {};
 };
 // `host` must stay valid for the life of the process.
 void set_frame_grab(const FrameGrabHost *host) noexcept;

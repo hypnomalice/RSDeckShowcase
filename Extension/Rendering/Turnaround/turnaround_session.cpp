@@ -77,10 +77,9 @@ bool Session::start(Inputs inputs) {
     angle_ = 0, wait_ = 0, light_ = false, posed_ = false, area_ = {}, work_scale_ = 1;
     captured_.clear();
     dark_.clear();
-    kept_at_.clear(), difference_.clear(), thumbnails_.clear(), last_thumbnail_.clear();
+    kept_at_.clear(), difference_.clear(), thumbnails_.clear();
     taken_ = 0, stride_ = 1, warmup_ = 45, period_ = 0;
-    turn_ = Turn::measure, still_ = 0, waited_ = 0, push_left_ = 0, steps_ = 0, steps_target_ = 0;
-    push_per_step_ = 0, push_owed_ = 0, strength_ = 1;
+    started_ = std::chrono::steady_clock::now();
     std::string why;
     bool began = false;
     try { began = in_.stage && in_.stage->begin(why); } catch (const std::exception& error) { why = error.what(); }
@@ -89,7 +88,7 @@ bool Session::start(Inputs inputs) {
         return true;
     }
     std::lock_guard lock(mutex_);
-    progress_ = {Phase::capturing, 0, in_.options.frames, "Turning the board...", {}};
+    progress_ = {Phase::capturing, 0, 0, "Turning the board...", {}};
     return true;
 }
 
@@ -123,6 +122,12 @@ bool Session::wants_frame() noexcept {
     if (cancelled_.load()) {
         try { in_.stage->end(); } catch (...) {}
         finish("Turnaround cancelled.", true);
+        return false;
+    }
+    // However it goes, a turnaround gives the game back within a minute.
+    if (std::chrono::steady_clock::now() - started_ > std::chrono::seconds(60)) {
+        try { in_.stage->end(); } catch (...) {}
+        finish("The turnaround took too long and was stopped. Is the Board screen open, with the board on show?", true);
         return false;
     }
     if (in_.stage->continuous()) return next_continuous();
@@ -226,10 +231,9 @@ float unlike(const std::vector<float>& a, const std::vector<float>& b) {
     for (std::size_t i = 0; i < a.size() && i < b.size(); ++i) sum += std::abs(a[i] - b[i]);
     return sum / static_cast<float>(std::max<std::size_t>(a.size(), 1));
 }
-constexpr std::size_t most_kept = 300;       // pictures held at once
+constexpr std::size_t most_kept = 240;       // pictures held at once
 constexpr std::uint32_t longest_turn = 2400; // frames (40 s at 60) to measure a turn in
 constexpr float moving = 6.0f;               // grey levels of change that say the board turns
-constexpr float still = 0.35f;               // ...and that say it has stopped
 } // namespace
 
 // Come round: the last few views match the first few again, after clearly different ones. Matching
@@ -255,82 +259,22 @@ double Session::come_round(const std::vector<float>& small) {
     return static_cast<double>(d - 2) + (curve > 0 ? 0.5 * (a - c) / curve : 0.0);
 }
 
-// Render thread, every presented frame, for a continuous stage: what the turnaround does now, and
-// whether this frame is wanted.
+// Render thread, every presented frame, for a continuous stage: whether this frame is wanted. Every
+// one is, once the board is up to speed.
 bool Session::next_continuous() {
-    switch (turn_) {
-    case Turn::measure:
-        if (warmup_) { --warmup_; return false; } // up to speed first
-        return true;
-    case Turn::resting: return true;               // watched until it stops
-    case Turn::push:
-        if (push_left_ && --push_left_) return false;
-        in_.stage->hold(0);
-        turn_ = Turn::resting, still_ = 0, waited_ = 0;
-        return false;
-    case Turn::settling:
-        // Stopped: a few more frames for the game's temporal smoothing to let go of the motion.
-        if (wait_) { --wait_; return false; }
-        return true;
-    }
-    return false;
+    if (warmup_) { --warmup_; return false; }
+    return true;
 }
 
+// A continuous stage turns the board at a steady speed: every frame of one whole turn is kept (every
+// other one, and so on, past most_kept), and where the turn comes round decides which of them make
+// the evenly spaced frames of the animation.
 void Session::take_continuous(const PixelView& frame) {
     const auto small = thumbnail(frame, area_);
-    const auto finish_turn = [&] {
-        in_.stage->end();
-        {
-            std::lock_guard lock(mutex_);
-            progress_.phase = Phase::encoding;
-            progress_.message = "Saving the turnaround...";
-        }
-        std::thread([this] { encode(); }).detach();
-    };
-    switch (turn_) {
-    case Turn::measure: {
-        // A whole turn at full strength, to know how far a push goes.
-        ++taken_;
-        period_ = come_round(small);
-        const auto peak = difference_.empty() ? 0.0f : *std::max_element(difference_.begin(), difference_.end());
-        if (period_ <= 0) {
-            if (taken_ > 240 && peak <= moving)
-                throw std::runtime_error("The board did not turn. Is the Board screen open, with the board on show?");
-            if (taken_ >= longest_turn) throw std::runtime_error("The board did not come all the way round.");
-            return;
-        }
-        // Steps of about a third of an output frame's turn, at least two frames of push each; a
-        // fast spin is pushed more gently instead.
-        steps_target_ = std::max<std::uint32_t>(in_.options.frames, 24); // one step a frame
-        push_per_step_ = period_ / steps_target_;
-        if (push_per_step_ < 2) {
-            strength_ = std::max(0.08f, static_cast<float>(push_per_step_ / 2));
-            push_per_step_ = 2;
-        }
-        in_.stage->hold(0);
-        turn_ = Turn::resting, still_ = 0, waited_ = 0;
-        thumbnails_.clear(), difference_.clear();
-        period_ = 0;
-        {
-            std::lock_guard lock(mutex_);
-            progress_.steps = steps_target_;
-            progress_.step = 0;
-        }
-        return;
-    }
-    case Turn::resting:
-        still_ = !last_thumbnail_.empty() && unlike(small, last_thumbnail_) < still ? still_ + 1 : 0;
-        last_thumbnail_ = small;
-        if (still_ >= 3 || ++waited_ > 120) turn_ = Turn::settling, wait_ = in_.options.settle;
-        return;
-    case Turn::push: return;
-    case Turn::settling: break;
-    }
-    // At rest: this step's picture.
     const auto copy = copy_area(frame, area_);
     auto picture = opaque_image({copy.data(), area_.width, area_.height, area_.width * 4, frame.bgra});
-    if (picture.height > 900) picture = fitted(picture, std::max(picture.width, picture.height) * 900 / picture.height);
-    const auto n = steps_++;
+    if (picture.height > 760) picture = fitted(picture, std::max(picture.width, picture.height) * 760 / picture.height);
+    const auto n = taken_++;
     if (n % stride_ == 0) {
         kept_at_.push_back(n);
         captured_.push_back(std::move(picture));
@@ -343,18 +287,23 @@ void Session::take_continuous(const PixelView& frame) {
     }
     {
         std::lock_guard lock(mutex_);
-        progress_.step = std::min(steps_, std::max<std::uint32_t>(progress_.steps, 1) - 1);
+        progress_.step = taken_;
     }
     period_ = come_round(small);
-    if (period_ > 0) return finish_turn();
-    if (steps_ > steps_target_ * 4)
-        throw std::runtime_error("The board did not come all the way round in steps.");
-    // The next push: the same length every step, kept even over the turn.
-    push_owed_ += push_per_step_;
-    push_left_ = std::max<std::uint32_t>(1, static_cast<std::uint32_t>(push_owed_));
-    push_owed_ -= push_left_;
-    in_.stage->hold(strength_);
-    turn_ = Turn::push;
+    if (period_ <= 0) {
+        const auto peak = difference_.empty() ? 0.0f : *std::max_element(difference_.begin(), difference_.end());
+        if (taken_ > 240 && peak <= moving)
+            throw std::runtime_error("The board did not turn. Is the Board screen open, with the board on show?");
+        if (taken_ >= longest_turn) throw std::runtime_error("The board did not come all the way round.");
+        return;
+    }
+    in_.stage->end();
+    {
+        std::lock_guard lock(mutex_);
+        progress_.phase = Phase::encoding;
+        progress_.message = "Saving the turnaround...";
+    }
+    std::thread([this] { encode(); }).detach();
 }
 
 void Session::encode() noexcept {

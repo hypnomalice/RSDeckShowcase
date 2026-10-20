@@ -308,13 +308,11 @@ public:
     void pose(double t, bool l) override { turn = t, light = l; }
     bool changes_background() const override { return backgrounds_; }
     bool continuous() const override { return spin_ != 0; }
-    void hold(float strength) override { strength_ = strength; }
     void end() override { ended = true; }
-    // A turning stage moves on by `spin` of a turn every frame drawn, times how hard it is held. As
-    // the game's temporal smoothing does, a frame keeps a trace of the last one: a moving board
-    // leaves a trail, a still one does not.
+    // A turning stage moves on by `spin` of a turn every frame drawn. As the game's temporal
+    // smoothing does, a frame keeps a trace of the last one.
     std::vector<std::uint8_t> frame() {
-        if (spin_ != 0 && !ended) turn += spin_ * strength_;
+        if (spin_ != 0 && !ended) turn += spin_;
         auto now = draw();
         if (!last_.empty())
             for (std::size_t i = 0; i < now.size(); ++i)
@@ -349,7 +347,6 @@ public:
 private:
     bool backgrounds_;
     double spin_;
-    float strength_{1};
     std::vector<std::uint8_t> last_;
 };
 
