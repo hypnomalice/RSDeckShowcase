@@ -19,22 +19,27 @@ double number(std::istringstream& words, double fallback) {
     const auto [end, error] = std::from_chars(word.data(), word.data() + word.size(), value);
     return error == std::errc{} && end == word.data() + word.size() ? value : fallback;
 }
-// The engine's switches that turn shadows on and off, as found this session (the names come from
-// the game's own settings registry): ShadowmapsEnable, LocalLightShadowEnable,
-// ScreenSpaceContactShadowsEnable and the like. Not the ones that only change how shadows are made
-// (caches, formats, filtering), nor particles', terrain's, clouds' or the fog's.
+// The engine's switches the turnaround turns off while it records, as found this session (the names
+// come from the game's own settings registry):
+//  - shadows: ShadowmapsEnable, LocalLightShadowEnable, ScreenSpaceContactShadowsEnable and the like
+//    (the board's shadow on the backdrop would be cut out with it), but not the ones that only change
+//    how shadows are made (caches, formats, filtering), nor particles', terrain's, clouds' or fog's;
+//  - post effects that spread the board into the backdrop: bloom (a white deck glows onto it), lens
+//    flare and dirt, film grain, chromatic aberration, motion blur.
 std::vector<std::string> shadow_switches() {
     static constexpr const char* how[] = {"cache", "16bit", "logspace", "accum", "stencil", "transition", "viewdistance",
                                           "fixedmovement", "refine", "culling", "displacement", "tessellation", "zbuffer",
                                           "expression", "emitter", "quad", "cloud", "volumetric", "participating", "transparent"};
+    static constexpr const char* effects[] = {"bloom", "lensflare", "lensdirt", "filmgrain", "chromaticaberration", "motionblur"};
     std::vector<std::string> out;
     for (const auto& name : named_setting_names()) {
         std::string folded = name;
         for (auto& c : folded) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        const bool switch_name = folded.ends_with("shadowenable") || folded.ends_with("shadowsenable") || folded.ends_with("shadowmapsenable");
-        if (!switch_name || folded.starts_with("fog.")) continue;
-        if (std::any_of(std::begin(how), std::end(how), [&](const char* part) { return folded.find(part) != std::string::npos; })) continue;
-        out.push_back(name);
+        if (!folded.ends_with("enable") || folded.starts_with("fog.")) continue;
+        const bool shadow = (folded.ends_with("shadowenable") || folded.ends_with("shadowsenable") || folded.ends_with("shadowmapsenable")) &&
+                            std::none_of(std::begin(how), std::end(how), [&](const char* part) { return folded.find(part) != std::string::npos; });
+        const bool effect = std::any_of(std::begin(effects), std::end(effects), [&](const char* part) { return folded.find(part) != std::string::npos; });
+        if (shadow || effect) out.push_back(name);
     }
     return out;
 }
@@ -82,7 +87,8 @@ void register_turnaround_commands(Commands& registry) {
             out(turnaround::set_option(key, value));
         } else if (verb == "shadows") {
             // `turnaround shadows off|restore`: queued by the turnaround around its capture, so the board's
-            // shadow on the backdrop does not come out as part of it. On the game thread, as settings are.
+            // shadow on the backdrop and its bloom do not come out as part of it. On the game thread, as
+            // settings are.
             std::string what;
             words >> what;
             auto& put_out = shadows_put_out();
@@ -95,10 +101,10 @@ void register_turnaround_commands(Commands& registry) {
                     put_out[name] = *value;
                     logging::log(logging::Level::info, logging::Channel::graphics, "Turnaround: {} off while turning ({})", name, said);
                 }
-                out(put_out.empty() ? "No shadow switches to turn off." : std::to_string(put_out.size()) + " shadow switch(es) off.");
+                out(put_out.empty() ? "Nothing to turn off." : std::to_string(put_out.size()) + " shadow and effect switch(es) off.");
             } else {
                 for (const auto& [name, value] : put_out) request_named_setting(name, value, false);
-                out(put_out.empty() ? "No shadows to put back." : "Shadows put back.");
+                out(put_out.empty() ? "Nothing to put back." : "Shadows and effects put back.");
                 put_out.clear();
             }
         } else if (verb == "open") {

@@ -50,6 +50,9 @@ Rect content_bounds(const Image& image, std::uint8_t threshold = 8);
 Rect united(Rect a, Rect b) noexcept;
 // `rect` grown by `margin` on every side and made square, kept inside `width` x `height`.
 Rect padded_square(Rect rect, std::uint32_t margin, std::uint32_t width, std::uint32_t height) noexcept;
+// A square around `content`, `margin` wider on every side, centred on it: it may reach past the
+// image, and what is outside is transparent (a board taller than the area it was taken from).
+Image square_around(const Image& image, Rect content, std::uint32_t margin);
 // The part of `image` inside `rect`; pixels outside the image are transparent.
 Image cropped(const Image& image, Rect rect);
 // `image` resized to exactly `width` x `height` (filtered as fitted is).

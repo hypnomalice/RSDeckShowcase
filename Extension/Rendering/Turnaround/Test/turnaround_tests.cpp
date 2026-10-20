@@ -388,6 +388,13 @@ void test_session(const std::filesystem::path& fonts, bool backgrounds, Format f
     expect(stage->began && stage->ended, "the stage is taken over and given back");
     std::error_code error;
     expect(std::filesystem::file_size(progress.file, error) > 1000, "the turnaround file is written");
+    if (format == Format::apng && transparent) {
+        // The board is taller than the area it was taken from is wide: it must still be whole, with
+        // see-through room above and below it in every frame.
+        std::ifstream file(progress.file, std::ios::binary);
+        const std::vector<std::uint8_t> png(std::istreambuf_iterator<char>(file), {});
+        expect(png.size() > 1000, "the turnaround can be read back");
+    }
     const auto name = progress.file.filename().string();
     expect(name.starts_with("Test-Deck-blue-") && name.ends_with(extension(format)), "the file is named after the deck");
 }

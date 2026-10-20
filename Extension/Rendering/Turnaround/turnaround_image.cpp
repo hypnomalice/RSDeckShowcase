@@ -82,6 +82,22 @@ Rect padded_square(Rect rect, std::uint32_t margin, std::uint32_t width, std::ui
     return {place(centre_x, width), place(centre_y, height), side, side};
 }
 
+Image square_around(const Image& image, Rect content, std::uint32_t margin) {
+    if (content.empty()) return {};
+    const auto side = std::max(content.width, content.height) + margin * 2;
+    // The square's corner, which may lie outside the image (left of it, above it).
+    const auto x0 = static_cast<std::int64_t>(content.x) + static_cast<std::int64_t>(content.width / 2) - static_cast<std::int64_t>(side / 2);
+    const auto y0 = static_cast<std::int64_t>(content.y) + static_cast<std::int64_t>(content.height / 2) - static_cast<std::int64_t>(side / 2);
+    Image out(side, side);
+    for (std::uint32_t y = 0; y < side; ++y)
+        for (std::uint32_t x = 0; x < side; ++x) {
+            const auto sx = x0 + x, sy = y0 + y;
+            if (sx >= 0 && sy >= 0 && sx < image.width && sy < image.height)
+                std::copy_n(image.at(static_cast<std::uint32_t>(sx), static_cast<std::uint32_t>(sy)), 4, out.at(x, y));
+        }
+    return out;
+}
+
 Image cropped(const Image& image, Rect rect) {
     Image out(rect.width, rect.height);
     for (std::uint32_t y = 0; y < rect.height; ++y)

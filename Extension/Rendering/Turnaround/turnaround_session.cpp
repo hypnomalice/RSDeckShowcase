@@ -52,7 +52,9 @@ Image opaque_image(const PixelView& view) {
 }
 
 // The part of the area the board turned through: every pixel that is at all opaque and changes
-// over the turn. The game's own UI stays the same, so it falls outside.
+// over the turn (the game's own UI stays the same, so it falls outside), then grown up and down by
+// what is solid in those columns. The nose and tail sit on the axis the board turns about and hardly
+// change, so change alone would cut them off.
 Rect turned_through(const std::vector<Image>& frames) {
     const auto& first = frames.front();
     Image moving(first.width, first.height);
@@ -63,7 +65,20 @@ Rect turned_through(const std::vector<Image>& frames) {
             for (std::size_t c = 0; c < 4; ++c) change = std::max(change, std::abs(frame.rgba[i + c] - first.rgba[i + c]));
             if (change > 24) moving.rgba[i + 3] = 255;
         }
-    return content_bounds(moving, 1);
+    auto bounds = content_bounds(moving, 1);
+    if (bounds.empty()) return bounds;
+    std::uint32_t top = bounds.y, bottom = bounds.y + bounds.height;
+    for (const auto& frame : frames)
+        for (std::uint32_t y = 0; y < frame.height; ++y) {
+            if (y >= top && y < bottom) continue;
+            for (std::uint32_t x = bounds.x; x < bounds.x + bounds.width; ++x)
+                if (frame.at(x, y)[3] >= 64) {
+                    top = std::min(top, y), bottom = std::max(bottom, y + 1);
+                    break;
+                }
+        }
+    bounds.y = top, bounds.height = bottom - top;
+    return bounds;
 }
 } // namespace
 
@@ -333,13 +348,13 @@ void Session::encode() noexcept {
         const auto through = turned_through(frames);
         if (through.empty()) throw std::runtime_error("No board was found on screen.");
         const auto margin = std::max(through.width, through.height) / 25 + 2;
-        const auto square = padded_square(through, margin, frames.front().width, frames.front().height);
+        // (not clipped to the area: the board is taller than the area is wide)
         std::optional<Image> card;
         if (o.parts && !in_.parts.empty()) card = render_parts_panel("Board", in_.parts, o.size, in_.fonts);
         Animation animation;
         animation.fps = o.fps;
         for (auto& frame : frames) {
-            auto shown = fitted(cropped(frame, square), o.size);
+            auto shown = fitted(square_around(frame, through, margin), o.size);
             frame = {};
             if (card) shown = side_by_side(shown, *card);
             if (!o.transparent) shown = over_matte(shown, o.matte);
