@@ -116,7 +116,9 @@ void test_backdrop_key(bool light_both_sides) {
             for (std::uint32_t x = 0; x < w; ++x) {
                 const float fx = static_cast<float>(x) + 0.5f, fy = static_cast<float>(y) + 0.5f;
                 const float rx = (fx - 120) / 300, ry = (fy - 230) / 400;
-                const float bg = 30 + 16 * std::max(0.0f, 1 - (rx * rx + ry * ry) * 2);
+                // A vignette no simple surface fits: a soft spot, a kink and a slow ripple.
+                const float bg = 24 + 30 * std::exp(-(rx * rx + ry * ry) * 5) + 8 * std::max(0.0f, 0.4f - std::abs(rx)) +
+                                 5 * std::sin(fy / 37);
                 const float dx = std::abs(fx - 150) - half_w, dy = std::abs(fy - 250) - half_h;
                 const float cover = std::clamp(0.5f - std::max(dx, dy), 0.0f, 1.0f);
                 // A white deck with a black grip; or one light on both sides (a white grip), which covers
