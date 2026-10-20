@@ -73,7 +73,7 @@ Image matte_pair(const PixelView& dark, const PixelView& light, Rect area, const
 //  4. the backdrop at a pixel is then the colour it shows, in any frame, close to that estimate.
 // An exact backdrop lets the key be tight, so a black grip against the dark backdrop still reads as
 // board. Matting (a stage that swaps the background) is better still; this is for when there is none.
-void key_against_backdrop(std::vector<Image>& frames) {
+void key_against_backdrop(std::vector<Image>& frames, bool solid_rows) {
     if (frames.empty()) return;
     const auto raw = frames;
     const auto w = frames.front().width, h = frames.front().height;
@@ -178,7 +178,7 @@ void key_against_backdrop(std::vector<Image>& frames) {
             }
     // A board is solid across: anything between its outermost keyed pixels in a row is board, even
     // where part of a graphic matched the backdrop and keyed out.
-    for (std::size_t f = 0; f < frames.size(); ++f) {
+    for (std::size_t f = 0; solid_rows && f < frames.size(); ++f) {
         auto& frame = frames[f];
         for (std::uint32_t y = 0; y < h; ++y) {
             std::int64_t first = -1, last = -1;

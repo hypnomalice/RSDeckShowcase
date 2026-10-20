@@ -23,5 +23,7 @@ Image matte_pair(const PixelView& dark, const PixelView& light, Rect area, const
                  float floor = 0.04f);
 // Without a second background to compare against: the board keyed out of every frame of a whole
 // turn (opaque captures of the same area) against the backdrop the turn reveals. See the .cpp.
-void key_against_backdrop(std::vector<Image>& frames);
+// `solid_rows`: what turns is solid across each row (a board), so anything between its outermost
+// keyed pixels in a row is kept. Not for a skater, whose arms and legs have backdrop between them.
+void key_against_backdrop(std::vector<Image>& frames, bool solid_rows = true);
 } // namespace dingosdk::turnaround

@@ -62,19 +62,37 @@ Image opaque_image(const PixelView& view) {
 }
 
 // Keeps only what turned, and says where it is. What moves over the turn (opaque and unlike the
-// first frame) is the subject; what is solid in any frame and joined to that is the rest of it (the
-// nose and tail sit on the axis the board turns about and hardly change); everything else solid in
-// the area is the game's UI, and is cleared from every frame. A rim two pixels wide is kept round it
+// first frame) is the subject; what is solid in any frame, changes at all, and is joined to that is
+// the rest of it (the nose and tail sit on the axis the board turns about and change little);
+// everything else in the area is the game's UI, and is cleared from every frame. A rim two pixels wide is kept round it
 // for the soft edges.
-Rect keep_turning(std::vector<Image>& frames) {
+// The pixels the game drew the same in every frame, as captured (before the backdrop is keyed out,
+// which can shade a still pixel differently from frame to frame): the game's UI (a prompt, its
+// leader line) stays exactly as it is, while every part of what turns, its nose and tail too,
+// takes the light differently as it goes round.
+std::vector<std::uint8_t> unchanging(const std::vector<Image>& frames) {
+    const auto& first = frames.front();
+    std::vector<std::uint8_t> low(first.rgba), high(first.rgba), out(first.rgba.size() / 4);
+    for (const auto& frame : frames)
+        for (std::size_t i = 0; i < frame.rgba.size(); ++i)
+            low[i] = std::min(low[i], frame.rgba[i]), high[i] = std::max(high[i], frame.rgba[i]);
+    for (std::size_t p = 0; p < out.size(); ++p) {
+        int spread = 0;
+        for (std::size_t c = 0; c < 3; ++c) spread = std::max(spread, high[p * 4 + c] - low[p * 4 + c]);
+        out[p] = spread <= 3;
+    }
+    return out;
+}
+
+Rect keep_turning(std::vector<Image>& frames, const std::vector<std::uint8_t>& fixed) {
     const auto& first = frames.front();
     const auto w = first.width, h = first.height;
     std::vector<std::uint8_t> moved(std::size_t{w} * h), solid(std::size_t{w} * h);
     for (const auto& frame : frames)
         for (std::size_t p = 0, i = 0; p < moved.size(); ++p, i += 4) {
             const auto alpha = frame.rgba[i + 3];
-            if (alpha >= 64) solid[p] = 1;
-            if (moved[p] || alpha < 16) continue;
+            if (alpha >= 64 && !fixed[p]) solid[p] = 1;
+            if (moved[p] || fixed[p] || alpha < 16) continue;
             int change = 0;
             for (std::size_t c = 0; c < 4; ++c) change = std::max(change, std::abs(frame.rgba[i + c] - first.rgba[i + c]));
             if (change > 24) moved[p] = 1;
@@ -96,16 +114,17 @@ Rect keep_turning(std::vector<Image>& frames) {
                 if (!kept[q] && solid[q]) kept[q] = 1, todo.push_back(q);
             }
     }
-    // The rim.
+    // The rim (of what changes: never a still prompt touching the edge).
     for (int pass = 0; pass < 2; ++pass) {
         auto grown = kept;
+        const auto add = [&](std::size_t q) { if (!fixed[q]) grown[q] = 1; };
         for (std::uint32_t y = 0; y < h; ++y)
             for (std::uint32_t x = 0; x < w; ++x) {
                 if (!kept[std::size_t{y} * w + x]) continue;
-                if (x > 0) grown[std::size_t{y} * w + x - 1] = 1;
-                if (x + 1 < w) grown[std::size_t{y} * w + x + 1] = 1;
-                if (y > 0) grown[std::size_t{y - 1} * w + x] = 1;
-                if (y + 1 < h) grown[std::size_t{y + 1} * w + x] = 1;
+                if (x > 0) add(std::size_t{y} * w + x - 1);
+                if (x + 1 < w) add(std::size_t{y} * w + x + 1);
+                if (y > 0) add(std::size_t{y - 1} * w + x);
+                if (y + 1 < h) add(std::size_t{y + 1} * w + x);
             }
         kept = std::move(grown);
     }
@@ -132,7 +151,7 @@ bool Session::start(Inputs inputs) {
     angle_ = 0, wait_ = 0, light_ = false, posed_ = false, area_ = {}, work_scale_ = 1;
     captured_.clear();
     dark_.clear();
-    kept_at_.clear(), difference_.clear(), thumbnails_.clear();
+    kept_at_.clear(), difference_.clear(), long_difference_.clear(), thumbnails_.clear();
     taken_ = 0, stride_ = 1, warmup_ = 45, period_ = 0;
     started_ = std::chrono::steady_clock::now();
     std::string why;
@@ -179,8 +198,8 @@ bool Session::wants_frame() noexcept {
         finish("Turnaround cancelled.", true);
         return false;
     }
-    // However it goes, a turnaround gives the game back within a minute.
-    if (std::chrono::steady_clock::now() - started_ > std::chrono::seconds(60)) {
+    // However it goes, a turnaround gives the game back within 45 seconds.
+    if (std::chrono::steady_clock::now() - started_ > std::chrono::seconds(45)) {
         try { in_.stage->end(); } catch (...) {}
         finish("The turnaround took too long and was stopped. " + screen_hint(in_.options.subject), true);
         return false;
@@ -305,14 +324,41 @@ double Session::come_round(const std::vector<float>& small) {
     float sum = 0;
     for (std::size_t k = 0; k < run; ++k) sum += unlike(thumbnails_[p + k], thumbnails_[k]);
     difference_.push_back(sum / run); // difference_[p]
+    // The same over a longer run, for what does not quite come back to how it started (below).
+    constexpr std::size_t long_run = 16;
+    if (n >= long_run) {
+        const auto q = n - long_run;
+        float total = 0;
+        for (std::size_t k = 0; k < long_run; ++k) total += unlike(thumbnails_[q + k], thumbnails_[k]);
+        long_difference_.push_back(total / long_run); // long_difference_[q]
+    }
     const auto d = difference_.size();
     if (d < 12) return 0;
     const auto peak = *std::max_element(difference_.begin(), difference_.end());
     if (peak <= moving) return 0;
     const float a = difference_[d - 3], b = difference_[d - 2], c = difference_[d - 1];
-    if (!(b < 0.2f * peak && b <= a && b < c)) return 0;
-    const float curve = a - 2 * b + c;
-    return static_cast<double>(d - 2) + (curve > 0 ? 0.5 * (a - c) / curve : 0.0);
+    if (b < 0.2f * peak && b <= a && b < c) {
+        const float curve = a - 2 * b + c;
+        return static_cast<double>(d - 2) + (curve > 0 ? 0.5 * (a - c) / curve : 0.0);
+    }
+    // What turns may not look quite the same when it comes round: a skater sways and breathes as
+    // they stand, and fills less of the area than a board does. Then it is matched over a longer run
+    // of views (so a view that is only the mirror of the start, turning the other way, does not
+    // pass), and has come round at a clear dip, lowest for a few views either side, after it was
+    // well unlike the start.
+    constexpr std::size_t side = 6;
+    const auto& series = long_difference_;
+    const auto e = series.size();
+    if (e < 2 * side + 12) return 0;
+    const auto long_peak = *std::max_element(series.begin(), series.end());
+    const auto m = e - 1 - side;
+    const float v = series[m];
+    if (v >= 0.4f * long_peak) return 0;
+    for (std::size_t k = m - side; k <= m + side; ++k)
+        if (k != m && series[k] < v) return 0;
+    if (*std::max_element(series.begin(), series.begin() + static_cast<std::ptrdiff_t>(m)) < 0.8f * long_peak) return 0;
+    const float l = series[m - 1], r = series[m + 1], curve = l - 2 * v + r;
+    return static_cast<double>(m) + (curve > 0 ? 0.5 * (l - r) / curve : 0.0);
 }
 
 // Render thread, every presented frame, for a continuous stage: whether this frame is wanted. Every
@@ -370,7 +416,8 @@ void Session::take_continuous(const PixelView& frame) {
 void Session::encode() noexcept {
     try {
         auto frames = std::move(captured_);
-        if (!in_.stage->changes_background()) key_against_backdrop(frames);
+        const auto fixed = unchanging(frames);
+        if (!in_.stage->changes_background()) key_against_backdrop(frames, in_.options.subject == Subject::board);
         if (in_.stage->continuous() && period_ > 0) {
             // The frames nearest to evenly spaced points of the one turn.
             std::vector<Image> even;
@@ -385,7 +432,7 @@ void Session::encode() noexcept {
         }
         const auto& o = in_.options;
         
-        const auto through = keep_turning(frames);
+        const auto through = keep_turning(frames, fixed);
         if (through.empty()) throw std::runtime_error(std::string("No ") + noun(o.subject) + " was found on screen.");
         const auto margin = std::max(through.width, through.height) / 25 + 2;
         std::optional<Image> card;

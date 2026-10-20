@@ -102,6 +102,7 @@ private:
     // Continuous stages (see Stage::continuous): every frame of one turn.
     std::vector<double> kept_at_;          // each kept picture's frame
     std::vector<float> difference_;        // how unlike the start each frame looks
+    std::vector<float> long_difference_;   // the same over a longer run of views
     std::vector<std::vector<float>> thumbnails_; // every frame, for coming round
     std::uint32_t taken_{}, stride_{1}, warmup_{};
     double period_{};                      // frames in one whole turn

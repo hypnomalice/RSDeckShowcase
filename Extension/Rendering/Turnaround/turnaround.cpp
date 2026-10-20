@@ -125,14 +125,15 @@ struct OutfitKind { const char* word; const char* label; int order; };
 constexpr OutfitKind outfit_kinds[] = {
     {"head", "Headwear", 0}, {"hat", "Headwear", 0}, {"cap", "Headwear", 0}, {"beanie", "Headwear", 0}, {"helmet", "Headwear", 0},
     {"eye", "Eyewear", 1}, {"glass", "Eyewear", 1}, {"mask", "Face", 1},
-    {"neck", "Neckwear", 2}, {"jewel", "Jewellery", 2}, {"ear", "Earrings", 2},
+    {"neck", "Neckwear", 2}, {"jewel", "Jewellery", 2}, {"earring", "Earrings", 2},
     {"costume", "Costume", 3}, {"outfit", "Outfit", 3},
     {"outer", "Outerwear", 4}, {"jacket", "Outerwear", 4}, {"top", "Top", 5}, {"shirt", "Top", 5}, {"hood", "Top", 5},
     {"glove", "Gloves", 6}, {"wrist", "Wrist", 6}, {"watch", "Wrist", 6}, {"bag", "Bag", 7}, {"backpack", "Bag", 7},
     {"bottom", "Bottoms", 8}, {"pant", "Bottoms", 8}, {"short", "Bottoms", 8}, {"leg", "Bottoms", 8},
     {"sock", "Socks", 9}, {"foot", "Shoes", 10}, {"shoe", "Shoes", 10}};
 constexpr const char* not_outfit[] = {"skin", "face_", "body", "hair", "beard", "brow", "makeup", "eyecolo", "eye_colo",
-                                      "tattoo", "gesture", "emote", "voice", "bkobject", "board", "deck", "truck", "wheel", "grip"};
+                                      "tattoo", "gesture", "emote", "voice", "bkobject", "board", "deck", "truck", "wheel", "grip",
+                                      "locomotion", "lipcolo", "mole", "stubble", "freckle", "scar", "nose", "mouth", "teeth"};
 std::string folded(std::string_view text) {
     std::string out(text);
     for (auto& c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -163,7 +164,9 @@ std::vector<Part> worn_outfit() {
             const auto category = folded(entry != known.end() ? entry->second.category : std::string());
             seen += std::format("\n    {:#x}/{:#010x} {} [{}]", recipe.template_key, item.slot, item.asset, category);
             const auto has = [&](const char* word) { return category.find(word) != std::string::npos; };
-            if (category.empty() || std::any_of(std::begin(not_outfit), std::end(not_outfit), has)) continue;
+            // The body's own parts are "cust..." (custhead, custeye, custnoses, custbodies, custmoles...).
+            if (category.empty() || category.starts_with("cust") || std::any_of(std::begin(not_outfit), std::end(not_outfit), has))
+                continue;
             const auto kind = std::find_if(std::begin(outfit_kinds), std::end(outfit_kinds), [&](const OutfitKind& k) { return has(k.word); });
             std::string label;
             int order = 20;

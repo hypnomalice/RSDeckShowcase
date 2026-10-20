@@ -315,6 +315,7 @@ public:
     // smoothing does, a frame keeps a trace of the last one.
     std::vector<std::uint8_t> frame() {
         if (spin_ != 0 && !ended) turn += spin_;
+        ++drawn;
         auto now = draw();
         if (!last_.empty())
             for (std::size_t i = 0; i < now.size(); ++i)
@@ -325,7 +326,9 @@ public:
     std::vector<std::uint8_t> draw() const {
         constexpr std::uint32_t w = 1280, h = 720;
         std::vector<std::uint8_t> out(std::size_t{w} * h * 4);
-        const float cx = 1280 * (skater ? 0.5f : 0.76f), cy = 720 * 0.57f;
+        // A skater sways as they stand, so the turn never quite comes back to how it started.
+        const float sway = skater ? 3.0f * std::sin(static_cast<float>(drawn) * 0.21f) : 0.0f;
+        const float cx = 1280 * (skater ? 0.5f : 0.76f) + sway, cy = 720 * 0.57f;
         const float half_w = 60 * std::abs(std::cos(static_cast<float>(turn) * 6.2831853f)) + 3, half_h = 230;
         const bool back = std::cos(static_cast<float>(turn) * 6.2831853f) < 0;
         for (std::uint32_t y = 0; y < h; ++y)
@@ -335,6 +338,9 @@ public:
                 float rgb[3] = {bg, bg, bg + 4};
                 if (x > 860 && x < 900 && y > 140 && y < 170) rgb[0] = rgb[1] = rgb[2] = 200; // UI that never moves
                 if (skater && x > 560 && x < 720 && y > 648 && y < 668) rgb[0] = rgb[1] = rgb[2] = 230; // the page numbers, just under the feet
+                // The Board screen's "Equip" prompt under the board, its leader line running in to it.
+                if (!skater && ((x > 990 && x < 1060 && y > 640 && y < 664) || (x > 900 && x < 990 && y >= 641 && y <= 643)))
+                    rgb[0] = rgb[1] = rgb[2] = 210;
                 const float dx = std::abs(fx - cx) - half_w, dy = std::abs(fy - cy) - half_h;
                 const float cover = std::clamp(0.5f - std::max(dx, dy), 0.0f, 1.0f);
                 const float deck[3] = {back ? 12.0f : 40.0f, back ? 12.0f : 150.0f + 80 * fy / h, back ? 13.0f : 220.0f};
@@ -347,6 +353,7 @@ public:
     }
     double turn{};
     bool light{}, began{}, ended{}, skater{};
+    unsigned drawn{};
 private:
     bool backgrounds_;
     double spin_;
