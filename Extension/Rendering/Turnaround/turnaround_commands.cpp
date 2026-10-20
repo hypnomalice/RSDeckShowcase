@@ -19,15 +19,22 @@ double number(std::istringstream& words, double fallback) {
     const auto [end, error] = std::from_chars(word.data(), word.data() + word.size(), value);
     return error == std::errc{} && end == word.data() + word.size() ? value : fallback;
 }
-// The engine's shadow switches, as found this session (the names come from the game's own settings
-// registry): WorldRender.*Shadow*Enable and the like, but not the fog's volumetric shadows.
+// The engine's switches that turn shadows on and off, as found this session (the names come from
+// the game's own settings registry): ShadowmapsEnable, LocalLightShadowEnable,
+// ScreenSpaceContactShadowsEnable and the like. Not the ones that only change how shadows are made
+// (caches, formats, filtering), nor particles', terrain's, clouds' or the fog's.
 std::vector<std::string> shadow_switches() {
+    static constexpr const char* how[] = {"cache", "16bit", "logspace", "accum", "stencil", "transition", "viewdistance",
+                                          "fixedmovement", "refine", "culling", "displacement", "tessellation", "zbuffer",
+                                          "expression", "emitter", "quad", "cloud", "volumetric", "participating", "transparent"};
     std::vector<std::string> out;
     for (const auto& name : named_setting_names()) {
         std::string folded = name;
         for (auto& c : folded) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        if (folded.find("shadow") != std::string::npos && folded.find("enable") != std::string::npos && !folded.starts_with("fog."))
-            out.push_back(name);
+        const bool switch_name = folded.ends_with("shadowenable") || folded.ends_with("shadowsenable") || folded.ends_with("shadowmapsenable");
+        if (!switch_name || folded.starts_with("fog.")) continue;
+        if (std::any_of(std::begin(how), std::end(how), [&](const char* part) { return folded.find(part) != std::string::npos; })) continue;
+        out.push_back(name);
     }
     return out;
 }
