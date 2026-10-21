@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <charconv>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <sstream>
 
 namespace dingosdk::console {
@@ -122,6 +124,21 @@ void register_turnaround_commands(Commands& registry) {
         } else if (verb == "cancel") {
             turnaround::cancel_export();
             out(turnaround::exporting() ? "Cancelling the fit check." : "No fit check is being made.");
+        } else if (verb == "settings") {
+            // Research aid: every engine setting the game has, with its value, to a file beside the
+            // fit checks (for finding what hides the scene behind the board or skater).
+            const auto folder = turnaround::research::folder();
+            std::error_code error;
+            std::filesystem::create_directories(folder, error);
+            std::ofstream file(folder / L"engine-settings.txt", std::ios::trunc);
+            std::size_t count = 0;
+            for (const auto& name : named_setting_names()) {
+                const auto value = named_setting_value(name);
+                file << name << " = " << (value ? *value : std::string("?")) << "\n";
+                ++count;
+            }
+            out(file ? std::to_string(count) + " settings written to engine-settings.txt in the Fit Checks folder."
+                     : std::string("The settings file could not be written."));
         } else if (verb == "grab") {
             turnaround::research::request_grab();
             out("The next frame will be saved in the Fit Checks folder beside Skate.exe.");
@@ -133,7 +150,7 @@ void register_turnaround_commands(Commands& registry) {
             const auto x = number(words, 0.5), y = number(words, 0), seconds = number(words, 2);
             out(turnaround::research::request_stick(x, y, seconds));
         } else {
-            out("turnaround export [...] | set <key> <value> | open | cancel | grab | boards [seconds] | parts | stick <x> <y> [seconds]");
+            out("turnaround export [...] | set <key> <value> | open | cancel | grab | settings | boards [seconds] | parts | stick <x> <y> [seconds]");
         }
     };
     // The mod is called Fit Check: `fitcheck` does the same (`turnaround` stays, as the mod queues it).

@@ -41,12 +41,12 @@ public:
         return true;
     }
     void pose(double, bool) override {}
-    // The stick has a dead zone (XInput's is about a quarter of the way) and the speed grows from
-    // its edge, so a slower turn is asked for from there.
+    // Eased off by at most half each time: how the game turns the stick into a speed is not known
+    // (a dead zone, a curve), and easing off too far at once leaves the board standing still.
     bool slow_down(double ratio) override {
-        constexpr float dead = 0.24f, least = 0.27f;
+        constexpr float least = 0.12f;
         const float now = std::abs(spin_) * strength_;
-        const float next = std::max(least, dead + (now - dead) * static_cast<float>(std::clamp(ratio, 0.05, 1.0)));
+        const float next = std::max(least, now * static_cast<float>(std::clamp(ratio * 1.1, 0.5, 1.0)));
         if (next >= now - 0.005f) return false;
         faster_ = strength_;
         strength_ = next / std::abs(spin_);

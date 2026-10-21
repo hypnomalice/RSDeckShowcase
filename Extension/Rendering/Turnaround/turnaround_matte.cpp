@@ -176,10 +176,12 @@ void key_against_backdrop(std::vector<Image>& frames, bool solid_rows) {
                     p[c] = static_cast<std::uint8_t>(std::clamp(std::lround((p[c] - (1 - alpha) * b[c]) / alpha), 0L, 255L));
                 p[3] = static_cast<std::uint8_t>(std::lround(alpha * 255));
             }
-    // A skater is not solid across, but a dark part of them (a black joint, a dark shirt) can match a
-    // dark backdrop and key out as a hole in them. A small pocket the skater closes all round is
-    // filled from the frame; a bigger one is real backdrop (between an arm and the body).
-    for (std::size_t f = 0; !solid_rows && f < frames.size(); ++f) {
+    // Part of what turns can match the backdrop and key out as a hole in it: a dark joint or shirt,
+    // part of a deck's graphic. A pocket it closes all round is filled from the frame. A board is
+    // solid, so any pocket in it is board; a skater's bigger pockets are real backdrop (between an
+    // arm and the body). (Not filled across each row: the backdrop between a deck and its wheels is
+    // open above and below the truck, and stays clear.)
+    for (std::size_t f = 0; f < frames.size(); ++f) {
         auto& frame = frames[f];
         const std::size_t n = std::size_t{w} * h;
         std::vector<std::uint8_t> outside(n);
@@ -203,7 +205,7 @@ void key_against_backdrop(std::vector<Image>& frames, bool solid_rows) {
             }
         };
         spread(outside, todo, nullptr);
-        const auto pocket_most = std::max<std::size_t>(16, opaque * 3 / 100);
+        const auto pocket_most = std::max<std::size_t>(16, solid_rows ? opaque / 2 : opaque * 3 / 100);
         std::vector<std::uint32_t> region;
         for (std::size_t p = 0; p < n; ++p) {
             if (outside[p] || !clear(p)) continue;
@@ -216,22 +218,6 @@ void key_against_backdrop(std::vector<Image>& frames, bool solid_rows) {
                 auto* px = frame.rgba.data() + std::size_t{q} * 4;
                 std::copy_n(raw[f].rgba.data() + std::size_t{q} * 4, 3, px);
                 px[3] = 255;
-            }
-        }
-    }
-    // A board is solid across: anything between its outermost keyed pixels in a row is board, even
-    // where part of a graphic matched the backdrop and keyed out.
-    for (std::size_t f = 0; solid_rows && f < frames.size(); ++f) {
-        auto& frame = frames[f];
-        for (std::uint32_t y = 0; y < h; ++y) {
-            std::int64_t first = -1, last = -1;
-            for (std::uint32_t x = 0; x < w; ++x)
-                if (frame.at(x, y)[3] >= 128) { if (first < 0) first = x; last = x; }
-            for (auto x = first + 1; first >= 0 && x < last; ++x) {
-                auto* p = frame.at(static_cast<std::uint32_t>(x), y);
-                if (p[3] == 255) continue;
-                std::copy_n(raw[f].at(static_cast<std::uint32_t>(x), y), 3, p);
-                p[3] = 255;
             }
         }
     }

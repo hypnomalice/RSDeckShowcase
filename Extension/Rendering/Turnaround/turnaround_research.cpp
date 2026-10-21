@@ -240,6 +240,8 @@ std::string request_boards(double seconds) {
     return std::format("Looking for skateboards in memory, then watching them for {:.0f} s: spin the board now. The answer goes to the log.", seconds);
 }
 
+std::filesystem::path folder() { return output_folder(); }
+
 std::string request_parts() {
     // The game's skater presets as it holds them now (the loadout manager the saves read, see
     // local_customization_runtime.cpp): every item in them, its asset and its title.
