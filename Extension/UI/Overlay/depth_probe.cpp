@@ -44,6 +44,7 @@ struct Probe {
     unsigned frame{}, order{};
     std::vector<Snapshot> snapshots;
     unsigned barriers{}, depth_barriers{}, skipped_small{}, skipped_type{};
+    std::vector<std::string> notes; // each depth barrier, and why one was not copied (the first few)
     std::vector<std::string> seen; // each depth resource's description, once
 };
 Probe& probe() { static auto* value = new Probe; return *value; }
@@ -72,17 +73,26 @@ void STDMETHODCALLTYPE hooked_barrier(ID3D12GraphicsCommandList* list, UINT coun
                                               static_cast<unsigned>(desc.Flags));
                 if (std::find(p.seen.begin(), p.seen.end(), line) == p.seen.end() && p.seen.size() < 64) p.seen.push_back(line);
                 // Only near the screen's size, on a direct list, whole or its first subresource.
+                const auto note = [&](const char* what) {
+                    if (p.notes.size() < 80)
+                        p.notes.push_back(std::format("frame {} {:#x} sub {:#x} {:#x}->{:#x} flags {:#x}: {}", p.frame, key, b.Transition.Subresource,
+                                                      static_cast<unsigned>(b.Transition.StateBefore), static_cast<unsigned>(b.Transition.StateAfter),
+                                                      static_cast<unsigned>(b.Flags), what));
+                };
                 if (desc.Width * 3 < std::uint64_t{p.screen_width} || desc.Height * 3 < p.screen_height) { ++p.skipped_small; continue; }
                 if (list->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) { ++p.skipped_type; continue; }
-                if (b.Transition.Subresource != D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES && b.Transition.Subresource != 0) continue;
-                if (p.snapshots.size() >= 16) continue;
+                // A split barrier's start leaves the buffer as it is until then (copied before it); its
+                // end finds it already on its way.
+                if (b.Flags & D3D12_RESOURCE_BARRIER_FLAG_END_ONLY) { note("end of a split barrier, not copied"); continue; }
+                if (b.Transition.Subresource != D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES && b.Transition.Subresource != 0) { note("another plane, not copied"); continue; }
+                if (p.snapshots.size() >= 16) { note("enough copies"); continue; }
                 Microsoft::WRL::ComPtr<ID3D12Device> device;
-                if (FAILED(list->GetDevice(IID_PPV_ARGS(&device)))) continue;
+                if (FAILED(list->GetDevice(IID_PPV_ARGS(&device)))) { note("no device"); continue; }
                 Snapshot snap;
                 UINT rows{};
                 UINT64 row_bytes{}, total{};
                 device->GetCopyableFootprints(&desc, 0, 1, 0, &snap.layout, &rows, &row_bytes, &total);
-                if (!total) continue;
+                if (!total) { note("no copyable footprint"); continue; }
                 D3D12_HEAP_PROPERTIES heap{};
                 heap.Type = D3D12_HEAP_TYPE_READBACK;
                 D3D12_RESOURCE_DESC bytes{};
@@ -95,7 +105,7 @@ void STDMETHODCALLTYPE hooked_barrier(ID3D12GraphicsCommandList* list, UINT coun
                 bytes.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
                 if (FAILED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &bytes, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                                            IID_PPV_ARGS(&snap.readback))))
-                    continue;
+                    { note("readback buffer not made"); continue; }
                 // DEPTH_WRITE -> COPY_SOURCE, the copy, and back, before the game's own barrier.
                 D3D12_RESOURCE_BARRIER ours[2]{};
                 ours[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -121,6 +131,7 @@ void STDMETHODCALLTYPE hooked_barrier(ID3D12GraphicsCommandList* list, UINT coun
                 snap.frame = p.frame;
                 snap.order = p.order++;
                 p.snapshots.push_back(std::move(snap));
+                note("copied");
             }
         } catch (...) {}
     }
@@ -159,12 +170,13 @@ double depth_at(const std::uint8_t* row, std::uint32_t x, DXGI_FORMAT format, st
 void write_snapshots(detail::State& s) {
     auto& p = probe();
     std::vector<Snapshot> snapshots;
-    std::vector<std::string> seen;
+    std::vector<std::string> seen, notes;
     unsigned barriers, depth_barriers, too_small, other_list;
     {
         std::lock_guard lock(p.mutex);
         snapshots.swap(p.snapshots);
         seen.swap(p.seen);
+        notes.swap(p.notes);
         barriers = p.barriers, depth_barriers = p.depth_barriers, too_small = p.skipped_small, other_list = p.skipped_type;
     }
     std::error_code error;
@@ -174,6 +186,8 @@ void write_snapshots(detail::State& s) {
                        p.screen_width, p.screen_height, barriers, depth_barriers, too_small, other_list);
     log << "Depth textures seen:\n";
     for (const auto& line : seen) log << "  " << line << "\n";
+    log << "Depth barriers:\n";
+    for (const auto& line : notes) log << "  " << line << "\n";
     // The copies are on the game's lists, submitted by now; this makes sure they are done.
     const UINT64 signal = ++s.next_fence;
     const bool done = SUCCEEDED(s.queue->Signal(s.fence.Get(), signal)) && detail::completed(signal, 5000);
@@ -262,7 +276,7 @@ void depth_probe_present(State& s, std::uint32_t width, std::uint32_t height) {
     if (p.requested.exchange(false)) {
         std::lock_guard lock(p.mutex);
         p.screen_width = width, p.screen_height = height;
-        p.snapshots.clear(), p.seen.clear();
+        p.snapshots.clear(), p.seen.clear(), p.notes.clear();
         p.barriers = p.depth_barriers = p.skipped_small = p.skipped_type = 0;
         p.frame = 0, p.order = 0;
         p.armed.store(3); // this frame's recording onwards, two whole frames
