@@ -62,6 +62,39 @@ Image opaque_image(const PixelView& view) {
     return out;
 }
 
+// What turns, by the game's depth: nearer than the backdrop behind it. The backdrop's distance for
+// each row is that of the area's outer columns (the backdrop, or the floor where the row meets it:
+// the camera is level, so the floor is about as far all along a row), and what is an eighth nearer
+// than that is the board or skater. The game's UI is never in the depth, and neither are a colour's
+// likeness to the backdrop or the floor's reflection. Into `picture`'s alpha; false when the depth
+// shows nothing there.
+bool depth_mask(const PixelView& frame, Rect area, Image& picture) {
+    if (!frame.depth || picture.width != area.width || picture.height != area.height) return false;
+    const auto w = area.width, h = area.height;
+    const auto margin = std::max<std::uint32_t>(2, w * 6 / 100);
+    std::vector<float> edge;
+    float behind = 0;
+    std::size_t found = 0;
+    for (std::uint32_t y = 0; y < h; ++y) {
+        edge.clear();
+        for (std::uint32_t x = 0; x < w; x = x + 1 == margin ? w - margin : x + 1) {
+            const float d = frame.depth_at(area.x + x, area.y + y);
+            if (d > 1e-7f) edge.push_back(1.0f / d);
+        }
+        if (!edge.empty()) {
+            std::nth_element(edge.begin(), edge.begin() + static_cast<std::ptrdiff_t>(edge.size() / 2), edge.end());
+            behind = edge[edge.size() / 2];
+        }
+        for (std::uint32_t x = 0; x < w; ++x) {
+            const float d = frame.depth_at(area.x + x, area.y + y);
+            const bool in_front = d > 1e-7f && (behind <= 0 || 1.0f / d < behind * 0.88f);
+            picture.at(x, y)[3] = in_front ? 255 : 0;
+            found += in_front;
+        }
+    }
+    return found > 64;
+}
+
 // Keeps only what turned, and says where it is. What moves over the turn (opaque and unlike the
 // first frame) is the subject; what is solid in any frame, changes at all, and is joined to that is
 // the rest of it (the nose and tail sit on the axis the board turns about and change little);
@@ -179,7 +212,7 @@ bool Session::start(Inputs inputs) {
     angle_ = 0, wait_ = 0, light_ = false, posed_ = false, area_ = {}, work_scale_ = 1;
     captured_.clear();
     dark_.clear();
-    kept_at_.clear(), difference_.clear(), long_difference_.clear(), thumbnails_.clear();
+    kept_at_.clear(), kept_depth_.clear(), difference_.clear(), long_difference_.clear(), thumbnails_.clear();
     taken_ = 0, stride_ = 1, warmup_ = 45, period_ = 0, slowdowns_ = 0;
     started_ = std::chrono::steady_clock::now();
     std::string why;
@@ -403,6 +436,11 @@ void Session::take_continuous(const PixelView& frame) {
     const auto small = thumbnail(frame, area_);
     const auto copy = copy_area(frame, area_);
     auto picture = opaque_image({copy.data(), area_.width, area_.height, area_.width * 4, frame.bgra});
+    // Cut out by the game's depth where there is one (the alpha; resized with the picture, its edge
+    // comes out soft).
+    const bool by_depth = depth_mask(frame, area_, picture);
+    if (!by_depth)
+        for (std::size_t i = 3; i < picture.rgba.size(); i += 4) picture.rgba[i] = 255;
     // Kept at about the size the board will be shown at (it fills most of the area's height), not
     // bigger: no detail is lost, and a whole turn fits in memory.
     const auto keep_height = std::clamp<std::uint32_t>(in_.options.size * 5 / 4, 480, picture.height);
@@ -412,11 +450,13 @@ void Session::take_continuous(const PixelView& frame) {
     const auto n = taken_++;
     if (n % stride_ == 0) {
         kept_at_.push_back(n);
+        kept_depth_.push_back(by_depth);
         captured_.push_back(std::move(picture));
         if (captured_.size() > most) { // keep every other one, and from now on every other
             std::size_t w = 0;
-            for (std::size_t r = 0; r < captured_.size(); r += 2) captured_[w] = std::move(captured_[r]), kept_at_[w++] = kept_at_[r];
-            captured_.resize(w), kept_at_.resize(w);
+            for (std::size_t r = 0; r < captured_.size(); r += 2)
+                captured_[w] = std::move(captured_[r]), kept_depth_[w] = kept_depth_[r], kept_at_[w++] = kept_at_[r];
+            captured_.resize(w), kept_at_.resize(w), kept_depth_.resize(w);
             stride_ *= 2;
         }
     }
@@ -455,7 +495,7 @@ void Session::take_continuous(const PixelView& frame) {
 
 // Starts the capture over (the stage now turns at another speed): what was taken is let go.
 void Session::turn_again(const char* message) {
-    captured_.clear(), kept_at_.clear(), difference_.clear(), long_difference_.clear(), thumbnails_.clear();
+    captured_.clear(), kept_at_.clear(), kept_depth_.clear(), difference_.clear(), long_difference_.clear(), thumbnails_.clear();
     taken_ = 0, stride_ = 1, warmup_ = 45, period_ = 0;
     started_ = std::chrono::steady_clock::now();
     std::lock_guard lock(mutex_);
@@ -466,8 +506,11 @@ void Session::turn_again(const char* message) {
 void Session::encode() noexcept {
     try {
         auto frames = std::move(captured_);
-        const auto fixed = unchanging(frames);
-        if (!in_.stage->changes_background()) key_against_backdrop(frames, in_.options.subject == Subject::board);
+        // By depth when every frame had it: the alpha is already the cut-out. Otherwise by colour.
+        const bool by_depth = !frames.empty() && kept_depth_.size() == frames.size() &&
+                              std::all_of(kept_depth_.begin(), kept_depth_.end(), [](bool d) { return d; });
+        const auto fixed = by_depth ? std::vector<std::uint8_t>(frames.front().rgba.size() / 4) : unchanging(frames);
+        if (!by_depth && !in_.stage->changes_background()) key_against_backdrop(frames, in_.options.subject == Subject::board);
         if (in_.stage->continuous() && period_ > 0) {
             // The frames nearest to evenly spaced points of the one turn.
             std::vector<Image> even;
@@ -522,7 +565,7 @@ void Session::encode() noexcept {
             std::lock_guard lock(mutex_);
             progress_.file = path;
         }
-        finish("Saved " + u8name + " in the Fit Checks folder.", false);
+        finish("Saved " + u8name + " in the Fit Checks folder" + (by_depth ? " (cut out by depth)." : " (cut out by colour)."), false);
     } catch (const std::exception& error) {
         finish(std::string("The fit check could not be saved: ") + error.what(), true);
     } catch (...) {

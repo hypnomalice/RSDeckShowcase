@@ -348,6 +348,10 @@ public:
                 const float cover = std::clamp(0.5f - std::max(dx, dy), 0.0f, 1.0f);
                 const float deck[3] = {back ? 12.0f : 40.0f, back ? 12.0f : 150.0f + 80 * fy / h, back ? 13.0f : 220.0f};
                 for (int c = 0; c < 3; ++c) rgb[c] = deck[c] * cover + rgb[c] * (1 - cover);
+                // With depth: a strip of the graphic down the deck's edge as dark as the backdrop, which
+                // colour alone cuts away.
+                if (with_depth && !skater && cover > 0.99f && std::abs(fx - cx) > half_w - 8)
+                    for (int c = 0; c < 3; ++c) rgb[c] = bg + 1.0f;
                 // A skater's black joint, as dark as the backdrop behind it.
                 if (skater && cover > 0.99f && std::abs(fy - cy + 60) < 10 && std::abs(fx - cx) < half_w * 0.5f)
                     for (int c = 0; c < 3; ++c) rgb[c] = bg + 1.0f;
@@ -357,8 +361,21 @@ public:
             }
         return out;
     }
+    // The game's depth for the frame drawn last: the board a quarter as far as the backdrop.
+    std::vector<float> depth() const {
+        constexpr std::uint32_t w = 1280, h = 720;
+        const float sway = skater ? 3.0f * std::sin(static_cast<float>(drawn) * 0.21f) : 0.0f;
+        const float cx = 1280 * (skater ? 0.5f : 0.76f) + sway, cy = 720 * 0.57f;
+        const float half_w = 60 * std::abs(std::cos(static_cast<float>(turn) * 6.2831853f)) + 3, half_h = 230;
+        std::vector<float> out(std::size_t{w} * h, 1.0f / 400);
+        for (std::uint32_t y = 0; y < h; ++y)
+            for (std::uint32_t x = 0; x < w; ++x)
+                if (std::abs(static_cast<float>(x) + 0.5f - cx) < half_w && std::abs(static_cast<float>(y) + 0.5f - cy) < half_h)
+                    out[std::size_t{y} * w + x] = 1.0f / 100;
+        return out;
+    }
     double turn{};
-    bool light{}, began{}, ended{}, skater{};
+    bool light{}, began{}, ended{}, skater{}, with_depth{};
     unsigned drawn{}, slowed{};
 private:
     bool backgrounds_;
@@ -367,7 +384,7 @@ private:
 };
 
 void test_session(const std::filesystem::path& fonts, bool backgrounds, Format format, bool transparent, double spin = 0,
-                  Subject subject = Subject::board, std::uint32_t frames = 16) {
+                  Subject subject = Subject::board, std::uint32_t frames = 16, bool with_depth = false) {
     const auto load = [&](const char* name) {
         std::ifstream in(fonts / name, std::ios::binary);
         return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(in), {});
@@ -376,6 +393,7 @@ void test_session(const std::filesystem::path& fonts, bool backgrounds, Format f
                       body = load("Montserrat-SemiBold.ttf");
     auto stage = std::make_shared<FakeStage>(backgrounds, spin);
     stage->skater = subject == Subject::skater;
+    stage->with_depth = with_depth;
     Session session;
     Session::Inputs in;
     in.options.subject = subject;
@@ -396,7 +414,9 @@ void test_session(const std::filesystem::path& fonts, bool backgrounds, Format f
         const bool wanted = session.wants_frame();
         const auto pixels = stage->frame();
         if (!wanted) continue;
-        session.take_frame({pixels.data(), 1280, 720, 1280 * 4, true});
+        const auto depth = with_depth ? stage->depth() : std::vector<float>{};
+        session.take_frame({pixels.data(), 1280, 720, 1280 * 4, true, with_depth ? reinterpret_cast<const std::uint8_t*>(depth.data()) : nullptr,
+                            1280 * 4});
     }
     for (int i = 0; i < 600 && session.busy(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(50));
     const auto progress = session.progress();
@@ -415,6 +435,7 @@ void test_session(const std::filesystem::path& fonts, bool backgrounds, Format f
     }
     const auto name = progress.file.filename().string();
     expect(name.starts_with("Test-Deck-blue-") && name.ends_with(extension(format)), "the file is named after the deck");
+    if (with_depth) expect(progress.message.find("by depth") != std::string::npos, "a turnaround with depth is cut out by it");
 }
 
 int main(int argc, char** argv) {
@@ -433,6 +454,7 @@ int main(int argc, char** argv) {
         test_session(argv[1], false, Format::apng, true, 1.0 / 37.3); // turned by the stick, at a speed it must find
         test_session(argv[1], false, Format::apng, true, 1.0 / 41.7, Subject::skater); // the Skaters screen
         test_session(argv[1], false, Format::webm, true, 1.0 / 37.3, Subject::board, 120); // too fast for 120 frames: slowed
+        test_session(argv[1], false, Format::apng, true, 1.0 / 37.3, Subject::board, 16, true); // cut out by the game's depth
     }
     else std::printf("skipped: the parts card and sessions (pass the fonts folder)\n");
     if (!failures) std::printf("turnaround tests passed\n");

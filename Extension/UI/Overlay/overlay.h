@@ -516,6 +516,10 @@ struct GrabbedFrame {
     const std::uint8_t *data{};
     std::uint32_t width{}, height{}, pitch{};
     bool bgra{};
+    // The game's depth for the same frame, when it was found (depth_probe.cpp): 32-bit floats,
+    // reversed (1 near, 0 at the far plane), `depth_pitch` bytes a row, the size of the frame.
+    const std::uint8_t *depth{};
+    std::uint32_t depth_pitch{};
 };
 // Board turnarounds (Extension/Rendering/Turnaround): asked on every presented frame, on the
 // render thread, whether they want its pixels, and handed them when they do. While `active` says

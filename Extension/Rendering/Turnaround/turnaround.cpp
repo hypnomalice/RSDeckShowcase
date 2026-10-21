@@ -219,7 +219,7 @@ void frame_grab_take(const overlay::GrabbedFrame& frame) noexcept {
         research::take_grab(frame);
         return;
     }
-    session().take_frame({frame.data, frame.width, frame.height, frame.pitch, frame.bgra});
+    session().take_frame({frame.data, frame.width, frame.height, frame.pitch, frame.bgra, frame.depth, frame.depth_pitch});
 }
 bool frame_grab_banner(char* text, std::size_t size, bool* recording) noexcept {
     try {

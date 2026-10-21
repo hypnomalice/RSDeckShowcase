@@ -172,7 +172,12 @@ void grab_presented_frame(State& s, ID3D12Resource* buffer) {
             }
         frame = {g.converted.data(), width, height, width * 4, false};
     }
+    // The depth of this frame (Fit Check cuts the board or skater out by it), when there is one.
+    std::uint32_t depth_width{}, depth_height{};
+    frame.depth = depth_tap_latest(depth_width, depth_height, frame.depth_pitch);
+    if (frame.depth && (depth_width != width || depth_height != height)) frame.depth = nullptr;
     try { h->take_frame(frame); } catch (...) {}
+    depth_tap_done();
     const D3D12_RANGE nothing{};
     g.readback->Unmap(0, &nothing);
 }

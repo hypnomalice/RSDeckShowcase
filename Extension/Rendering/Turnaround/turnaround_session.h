@@ -109,6 +109,7 @@ private:
     std::vector<Image> captured_;
     // Continuous stages (see Stage::continuous): every frame of one turn.
     std::vector<double> kept_at_;          // each kept picture's frame
+    std::vector<bool> kept_depth_;         // whether it was cut out by the game's depth
     std::vector<float> difference_;        // how unlike the start each frame looks
     std::vector<float> long_difference_;   // the same over a longer run of views
     std::vector<std::vector<float>> thumbnails_; // every frame, for coming round

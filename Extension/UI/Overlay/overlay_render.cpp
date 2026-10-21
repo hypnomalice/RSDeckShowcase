@@ -789,10 +789,14 @@ void render(IDXGISwapChain* presented, UINT flags) {
         return;
     }
     // A board turnaround takes the game's frame before anything of ReSkate's is drawn on it.
-    if (grab_frame) {
-        if (frame_grab_pending()) grab_presented_frame(s, frame.buffer.Get());
+    {
         const auto size = frame.buffer->GetDesc();
-        depth_probe_present(s, static_cast<std::uint32_t>(size.Width), size.Height);
+        const bool grabbing = frame_grab_pending();
+        depth_tap_present(s, static_cast<std::uint32_t>(size.Width), size.Height, grabbing);
+        if (grab_frame) {
+            if (grabbing) grab_presented_frame(s, frame.buffer.Get());
+            depth_probe_present(s, static_cast<std::uint32_t>(size.Width), size.Height);
+        }
     }
     ImGuiContext* previous = ImGui::GetCurrentContext();
     ImGui::SetCurrentContext(s.context);

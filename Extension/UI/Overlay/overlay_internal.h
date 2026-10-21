@@ -283,6 +283,13 @@ void release_frame_grab();
 void install_depth_probe(ID3D12GraphicsCommandList* list) noexcept;
 bool depth_probe_pending();
 void depth_probe_present(State& s, std::uint32_t width, std::uint32_t height);
+// The depth tap (depth_probe.cpp): while a frame grab runs, the game's main depth buffer is copied
+// every frame. depth_tap_present runs at each present (`wanted`: a grab is running); after the
+// frame's own work is known finished, depth_tap_latest maps the newest copy the GPU has made (or
+// gives null) until depth_tap_done.
+void depth_tap_present(State& s, std::uint32_t width, std::uint32_t height, bool wanted);
+const std::uint8_t* depth_tap_latest(std::uint32_t& width, std::uint32_t& height, std::uint32_t& pitch);
+void depth_tap_done();
 void draw_turnaround_banner();
 ComPtr<IUnknown> object_identity(IUnknown* object);
 Binding* find_binding(IUnknown* identity);

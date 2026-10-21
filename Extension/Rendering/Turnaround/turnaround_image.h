@@ -1,6 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -36,6 +37,15 @@ struct PixelView {
     const std::uint8_t* data{};
     std::uint32_t width{}, height{}, pitch{};
     bool bgra{};
+    // The game's depth for the same frame, when there is one: 32-bit floats a pixel, reversed (1
+    // near, 0 at the far plane), `depth_pitch` bytes a row, the frame's size.
+    const std::uint8_t* depth{};
+    std::uint32_t depth_pitch{};
+    float depth_at(std::uint32_t x, std::uint32_t y) const noexcept {
+        float v;
+        std::memcpy(&v, depth + std::size_t{y} * depth_pitch + std::size_t{x} * 4, 4);
+        return v;
+    }
     std::array<std::uint8_t, 3> rgb(std::uint32_t x, std::uint32_t y) const noexcept {
         const auto* p = data + std::size_t{y} * pitch + std::size_t{x} * 4;
         return bgra ? std::array<std::uint8_t, 3>{p[2], p[1], p[0]} : std::array<std::uint8_t, 3>{p[0], p[1], p[2]};
