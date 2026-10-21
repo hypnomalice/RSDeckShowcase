@@ -120,5 +120,8 @@ private:
     void turn_again(const char* message);
     bool next_continuous();
     double come_round(const std::vector<float>& small);
+    // Grey levels of change in the thumbnails that say it turns: a skater fills less of their area
+    // than a board does, and a slow turn changes little in the first frames.
+    float moved_enough() const noexcept { return in_.options.subject == Subject::skater ? 2.5f : 6.0f; }
 };
 } // namespace dingosdk::turnaround

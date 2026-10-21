@@ -259,8 +259,8 @@ bool Session::wants_frame() noexcept {
         finish("Fit check cancelled.", true);
         return false;
     }
-    // However it goes, a turnaround gives the game back within 45 seconds.
-    if (std::chrono::steady_clock::now() - started_ > std::chrono::seconds(45)) {
+    // However it goes, a turnaround gives the game back within a minute.
+    if (std::chrono::steady_clock::now() - started_ > std::chrono::seconds(60)) {
         try { in_.stage->end(); } catch (...) {}
         finish("The fit check took too long and was stopped. " + screen_hint(in_.options.subject), true);
         return false;
@@ -369,7 +369,6 @@ float unlike(const std::vector<float>& a, const std::vector<float>& b) {
 constexpr std::size_t most_kept = 480;       // pictures held at once, at most (enough for 60 a second)...
 constexpr std::size_t kept_bytes = 1000u << 20; // ...and in bytes
 constexpr std::uint32_t longest_turn = 2400; // frames (40 s at 60) to measure a turn in
-constexpr float moving = 6.0f;               // grey levels of change that say the board turns
 } // namespace
 
 // Come round: the last few views match the first few again, after clearly different ones. Matching
@@ -396,7 +395,7 @@ double Session::come_round(const std::vector<float>& small) {
     const auto d = difference_.size();
     if (d < 12) return 0;
     const auto peak = *std::max_element(difference_.begin(), difference_.end());
-    if (peak <= moving) return 0;
+    if (peak <= moved_enough()) return 0;
     const float a = difference_[d - 3], b = difference_[d - 2], c = difference_[d - 1];
     if (b < 0.2f * peak && b <= a && b < c) {
         const float curve = a - 2 * b + c;
@@ -467,12 +466,12 @@ void Session::take_continuous(const PixelView& frame) {
     period_ = come_round(small);
     if (period_ <= 0) {
         const auto peak = difference_.empty() ? 0.0f : *std::max_element(difference_.begin(), difference_.end());
-        if (taken_ > 240 && peak <= moving && slowdowns_ && slowdowns_ < 9 && in_.stage->speed_up()) {
+        if (taken_ > 600 && peak <= moved_enough() && slowdowns_ && slowdowns_ < 9 && in_.stage->speed_up()) {
             slowdowns_ = 9; // slowed until it stopped: a little faster, and no slower again
             turn_again("Turning a little faster...");
             return;
         }
-        if (taken_ > 240 && peak <= moving)
+        if (taken_ > 600 && peak <= moved_enough())
             throw std::runtime_error(std::string("The ") + noun(in_.options.subject) + " did not turn. " + screen_hint(in_.options.subject));
         if (taken_ >= longest_turn) throw std::runtime_error(std::string("The ") + noun(in_.options.subject) + " did not come all the way round.");
         return;
