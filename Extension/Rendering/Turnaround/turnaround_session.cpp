@@ -92,6 +92,32 @@ bool depth_mask(const PixelView& frame, Rect area, Image& picture) {
             found += in_front;
         }
     }
+    // The soles: where the feet meet the floor the depth cannot tell them from it. Carried down from
+    // the lowest part of the skater in each column while the colour is unlike the floor's along that
+    // row (the area's outer columns again), a little way at most.
+    std::vector<std::array<int, 3>> floor_colour(h);
+    std::vector<int> channel;
+    for (std::uint32_t y = 0; y < h; ++y)
+        for (int c = 0; c < 3; ++c) {
+            channel.clear();
+            for (std::uint32_t x = 0; x < w; x = x + 1 == margin ? w - margin : x + 1) channel.push_back(picture.at(x, y)[c]);
+            std::nth_element(channel.begin(), channel.begin() + static_cast<std::ptrdiff_t>(channel.size() / 2), channel.end());
+            floor_colour[y][static_cast<std::size_t>(c)] = channel[channel.size() / 2];
+        }
+    const auto reach = std::max<std::uint32_t>(2, h / 25);
+    for (std::uint32_t x = margin; x + margin < w; ++x) {
+        std::uint32_t lowest = h;
+        for (std::uint32_t y = h; y-- > 0;)
+            if (picture.at(x, y)[3]) { lowest = y; break; }
+        if (lowest >= h) continue;
+        for (std::uint32_t y = lowest + 1; y < h && y <= lowest + reach; ++y) {
+            auto* p = picture.at(x, y);
+            int off = 0;
+            for (int c = 0; c < 3; ++c) off = std::max(off, std::abs(p[c] - floor_colour[y][static_cast<std::size_t>(c)]));
+            if (off <= 24) break;
+            p[3] = 255;
+        }
+    }
     return found > 64;
 }
 
