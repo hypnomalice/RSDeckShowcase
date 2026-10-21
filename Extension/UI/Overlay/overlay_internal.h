@@ -278,6 +278,11 @@ void destroy_graphics();
 bool frame_grab_pending();
 void grab_presented_frame(State& s, ID3D12Resource* buffer);
 void release_frame_grab();
+// Fit Check's depth probe (depth_probe.cpp, `fitcheck depth`): its hook, installed with the overlay's
+// command list; whether it needs this present; and its turn at it.
+void install_depth_probe(ID3D12GraphicsCommandList* list) noexcept;
+bool depth_probe_pending();
+void depth_probe_present(State& s, std::uint32_t width, std::uint32_t height);
 void draw_turnaround_banner();
 ComPtr<IUnknown> object_identity(IUnknown* object);
 Binding* find_binding(IUnknown* identity);

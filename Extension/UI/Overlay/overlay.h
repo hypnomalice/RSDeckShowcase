@@ -530,6 +530,9 @@ struct FrameGrabHost {
 };
 // `host` must stay valid for the life of the process.
 void set_frame_grab(const FrameGrabHost *host) noexcept;
+// Research aid for Fit Check (`fitcheck depth`): the game's depth buffers over the next two frames
+// are copied and written to `folder` as pictures, with depth-probe.txt (depth_probe.cpp).
+void request_depth_probe(const wchar_t *folder) noexcept;
 using ParkSurfaceQueue = bool (*)(const EditorSurfaceRequest &);
 void set_park_surface_queue(ParkSurfaceQueue) noexcept;
 using ParkPreviewQueue = bool (*)(const EditorPreviewRequest &);

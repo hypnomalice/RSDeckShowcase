@@ -356,6 +356,7 @@ bool setup_graphics() {
     s.commands->SetName(L"ReSkate overlay draw");
     dingosdk::overlay::watch_draws(s.commands.Get());
     dingosdk::overlay::watch_addresses(s.commands.Get());
+    install_depth_probe(s.commands.Get());
     s.fence->SetName(L"ReSkate overlay fence");
     s.fence_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (!s.fence_event) return false;
@@ -744,7 +745,7 @@ void render(IDXGISwapChain* presented, UINT flags) {
     const bool item_browser_frame = item_browser_pending();
     const bool perf_frame = perf_hud_pending() || trainer_hud_pending();
     const bool hub_frame = hub_page_pending();
-    const bool grab_frame = frame_grab_pending();
+    const bool grab_frame = frame_grab_pending() || depth_probe_pending();
     if (trainer_open_requested()) s.visible.store(true);
     if (dingosdk::drone::menu_flag().load()) s.visible.store(true); // `dronemenu`: the menu opens on its DRONE page
     if (dingosdk::overlay::menu_open_flag().exchange(false)) s.visible.store(true); // `menu`, or its controller bind
@@ -788,7 +789,11 @@ void render(IDXGISwapChain* presented, UINT flags) {
         return;
     }
     // A board turnaround takes the game's frame before anything of ReSkate's is drawn on it.
-    if (grab_frame) grab_presented_frame(s, frame.buffer.Get());
+    if (grab_frame) {
+        if (frame_grab_pending()) grab_presented_frame(s, frame.buffer.Get());
+        const auto size = frame.buffer->GetDesc();
+        depth_probe_present(s, static_cast<std::uint32_t>(size.Width), size.Height);
+    }
     ImGuiContext* previous = ImGui::GetCurrentContext();
     ImGui::SetCurrentContext(s.context);
     {

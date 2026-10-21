@@ -125,6 +125,11 @@ void register_turnaround_commands(Commands& registry) {
         } else if (verb == "cancel") {
             turnaround::cancel_export();
             out(turnaround::exporting() ? "Cancelling the fit check." : "No fit check is being made.");
+        } else if (verb == "depth") {
+            // Research aid: the game's depth buffers over the next two frames, as pictures in the Fit
+            // Checks folder with depth-probe.txt (Extension/UI/Overlay/depth_probe.cpp).
+            overlay::request_depth_probe(turnaround::research::folder().c_str());
+            out("Taking the game's depth buffers over the next frames: depth-probe.txt and depth-*.pgm go to the Fit Checks folder.");
         } else if (verb == "settings") {
             // Research aid: every engine setting the game has, with its value, to a file beside the
             // fit checks (for finding what hides the scene behind the board or skater).
@@ -151,7 +156,7 @@ void register_turnaround_commands(Commands& registry) {
             const auto x = number(words, 0.5), y = number(words, 0), seconds = number(words, 2);
             out(turnaround::research::request_stick(x, y, seconds));
         } else {
-            out("turnaround export [...] | set <key> <value> | open | cancel | grab | settings | boards [seconds] | parts | stick <x> <y> [seconds]");
+            out("turnaround export [...] | set <key> <value> | open | cancel | grab | settings | depth | boards [seconds] | parts | stick <x> <y> [seconds]");
         }
     };
     // The mod is called Fit Check: `fitcheck` does the same (`turnaround` stays, as the mod queues it).
