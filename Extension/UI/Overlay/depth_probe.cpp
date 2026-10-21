@@ -101,8 +101,28 @@ void STDMETHODCALLTYPE hooked_barrier(ID3D12GraphicsCommandList* list, UINT coun
                 UINT rows{};
                 UINT64 row_bytes{}, total{};
                 device->GetCopyableFootprints(&desc, 0, 1, 0, &snap.layout, &rows, &row_bytes, &total);
-                if (!total) { note("no copyable footprint"); continue; }
-                if (total > p.spare_size) { note("bigger than the readback buffers"); continue; }
+                // The runtime turns down the game's depth buffers (flag 0x400, newer than it knows) and
+                // says so with a total of all ones: the depth plane is laid out by hand then, four bytes
+                // a pixel, rows 256-byte aligned.
+                const bool four_byte_depth = desc.Format == DXGI_FORMAT_R32G8X24_TYPELESS || desc.Format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT ||
+                                             desc.Format == DXGI_FORMAT_R32_TYPELESS || desc.Format == DXGI_FORMAT_D32_FLOAT ||
+                                             desc.Format == DXGI_FORMAT_R24G8_TYPELESS || desc.Format == DXGI_FORMAT_D24_UNORM_S8_UINT;
+                if ((total == 0 || total == ~UINT64{0}) && four_byte_depth) {
+                    snap.layout = {};
+                    snap.layout.Footprint.Format = desc.Format == DXGI_FORMAT_R24G8_TYPELESS || desc.Format == DXGI_FORMAT_D24_UNORM_S8_UINT
+                                                       ? DXGI_FORMAT_R24G8_TYPELESS
+                                                       : DXGI_FORMAT_R32_TYPELESS;
+                    snap.layout.Footprint.Width = static_cast<UINT>(desc.Width);
+                    snap.layout.Footprint.Height = desc.Height;
+                    snap.layout.Footprint.Depth = 1;
+                    snap.layout.Footprint.RowPitch = (static_cast<UINT>(desc.Width) * 4 + 255) / 256 * 256;
+                    total = std::uint64_t{snap.layout.Footprint.RowPitch} * desc.Height;
+                }
+                if (!total || total == ~UINT64{0}) { note("no copyable footprint"); continue; }
+                if (total > p.spare_size) {
+                    note(std::format("bigger than the readback buffers ({} bytes)", total).c_str());
+                    continue;
+                }
                 snap.readback = std::move(p.spare.back());
                 p.spare.pop_back();
                 // DEPTH_WRITE -> COPY_SOURCE, the copy, and back, before the game's own barrier.
