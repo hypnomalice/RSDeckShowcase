@@ -22,11 +22,11 @@ namespace {
 // 21:9 frame in the middle of anything wider). Measured from the game at 2000x837 (2026-10-20):
 //  - the Board screen's board: right of the item card, below the search bar, left of Back;
 //  - the Skaters screen's skater: between the Apparel and Tattoos columns, below the tab icons,
-//    down to the floor the feet stand on (the camera is fixed): not the page numbers below them,
-//    which the skater's reflection shows through, nor the reflection itself.
+//    down past the feet. The page numbers and the floor's reflection under them are in it, but
+//    never in the game's depth; cut out by colour (no depth), they are kept out by keep_turning.
 struct Area { float left, right, top, bottom; };
 constexpr Area board_fractions{0.655f, 0.86f, 0.185f, 0.985f};
-constexpr Area skater_fractions{0.27f, 0.735f, 0.14f, 0.907f};
+constexpr Area skater_fractions{0.27f, 0.735f, 0.14f, 0.985f};
 
 Rect subject_area(Subject subject, std::uint32_t width, std::uint32_t height) {
     const auto& a = subject == Subject::skater ? skater_fractions : board_fractions;
@@ -64,7 +64,7 @@ Image opaque_image(const PixelView& view) {
 
 // What turns, by the game's depth: nearer than the backdrop behind it. The backdrop's distance for
 // each row is that of the area's outer columns (the backdrop, or the floor where the row meets it:
-// the camera is level, so the floor is about as far all along a row), and what is an eighth nearer
+// the camera is level, so the floor is about as far all along a row), and what is 8% nearer
 // than that is the board or skater. The game's UI is never in the depth, and neither are a colour's
 // likeness to the backdrop or the floor's reflection. Into `picture`'s alpha; false when the depth
 // shows nothing there.
@@ -87,7 +87,7 @@ bool depth_mask(const PixelView& frame, Rect area, Image& picture) {
         }
         for (std::uint32_t x = 0; x < w; ++x) {
             const float d = frame.depth_at(area.x + x, area.y + y);
-            const bool in_front = d > 1e-7f && (behind <= 0 || 1.0f / d < behind * 0.88f);
+            const bool in_front = d > 1e-7f && (behind <= 0 || 1.0f / d < behind * 0.92f);
             picture.at(x, y)[3] = in_front ? 255 : 0;
             found += in_front;
         }
