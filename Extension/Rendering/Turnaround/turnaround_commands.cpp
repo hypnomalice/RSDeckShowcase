@@ -28,15 +28,16 @@ double number(std::istringstream& words, double fallback) {
 //    how shadows are made (caches, formats, filtering), nor particles', terrain's, clouds' or fog's;
 //  - post effects that spread the board into the backdrop: bloom (a white deck glows onto it), lens
 //    flare and dirt, film grain, chromatic aberration, motion blur;
-//  - for a skater (`floor`), what puts them on the floor: reflections (the Skaters screen's floor is
-//    glossy) and ambient occlusion (the dark smudge round the feet). Not for a board, whose trucks
-//    would lose their shine.
+//  - for a skater (`floor`), what puts them on the floor: screen-space reflections (the Skaters
+//    screen's floor is glossy) and ambient occlusion (the dark smudge round the feet).
 std::vector<std::string> shadow_switches(bool floor) {
     static constexpr const char* how[] = {"cache", "16bit", "logspace", "accum", "stencil", "transition", "viewdistance",
                                           "fixedmovement", "refine", "culling", "displacement", "tessellation", "zbuffer",
                                           "expression", "emitter", "quad", "cloud", "volumetric", "participating", "transparent"};
     static constexpr const char* effects[] = {"bloom", "lensflare", "lensdirt", "filmgrain", "chromaticaberration", "motionblur"};
-    static constexpr const char* floors[] = {"reflection", "ssr", "ambientocclusion", "ssao", "hbao", "gtao"};
+    // The game's own names (from `fitcheck settings`, 2026-10-21): screen-space reflections, which
+    // put the skater on the glossy floor, and the dynamic ambient occlusion round their feet.
+    static constexpr const char* floors[] = {"postprocess.screenspaceraytraceenable", "postprocess.dynamicaoenable"};
     std::vector<std::string> out;
     for (const auto& name : named_setting_names()) {
         std::string folded = name;
@@ -45,7 +46,7 @@ std::vector<std::string> shadow_switches(bool floor) {
         const bool shadow = (folded.ends_with("shadowenable") || folded.ends_with("shadowsenable") || folded.ends_with("shadowmapsenable")) &&
                             std::none_of(std::begin(how), std::end(how), [&](const char* part) { return folded.find(part) != std::string::npos; });
         const bool effect = std::any_of(std::begin(effects), std::end(effects), [&](const char* part) { return folded.find(part) != std::string::npos; });
-        const bool on_floor = floor && std::any_of(std::begin(floors), std::end(floors), [&](const char* part) { return folded.find(part) != std::string::npos; });
+        const bool on_floor = floor && std::any_of(std::begin(floors), std::end(floors), [&](const char* exact) { return folded == exact; });
         if (shadow || effect || on_floor) out.push_back(name);
     }
     return out;
