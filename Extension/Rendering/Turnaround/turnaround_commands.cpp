@@ -23,9 +23,8 @@ double number(std::istringstream& words, double fallback) {
 }
 // The engine's switches the turnaround turns off while it records, as found this session (the names
 // come from the game's own settings registry):
-//  - shadows: ShadowmapsEnable, LocalLightShadowEnable, ScreenSpaceContactShadowsEnable and the like
-//    (the board's shadow on the backdrop would be cut out with it), but not the ones that only change
-//    how shadows are made (caches, formats, filtering), nor particles', terrain's, clouds' or fog's;
+//  - the screen-space contact shadows (the board's shadow where it nears the backdrop), not the
+//    shadow maps: without those every light reaches the board unblocked and it is blown out;
 //  - post effects that spread the board into the backdrop: bloom (a white deck glows onto it), lens
 //    flare and dirt, film grain, chromatic aberration, motion blur;
 //  - for a skater (`floor`), what puts them on the floor: screen-space reflections (the Skaters
@@ -43,7 +42,9 @@ std::vector<std::string> shadow_switches(bool floor) {
         std::string folded = name;
         for (auto& c : folded) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         if (!folded.ends_with("enable") || folded.starts_with("fog.")) continue;
-        const bool shadow = (folded.ends_with("shadowenable") || folded.ends_with("shadowsenable") || folded.ends_with("shadowmapsenable")) &&
+        // Only the screen-space contact shadows: with the shadow maps off, every light reaches the
+        // board unblocked and it comes out blown out (seen 2026-10-21).
+        const bool shadow = folded.find("screenspacecontactshadows") != std::string::npos &&
                             std::none_of(std::begin(how), std::end(how), [&](const char* part) { return folded.find(part) != std::string::npos; });
         const bool effect = std::any_of(std::begin(effects), std::end(effects), [&](const char* part) { return folded.find(part) != std::string::npos; });
         const bool on_floor = floor && std::any_of(std::begin(floors), std::end(floors), [&](const char* exact) { return folded == exact; });

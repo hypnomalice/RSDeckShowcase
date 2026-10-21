@@ -43,6 +43,10 @@ struct Probe {
     std::uint32_t screen_width{}, screen_height{};
     unsigned frame{}, order{};
     std::vector<Snapshot> snapshots;
+    // Readback buffers made when the probe starts, on the overlay's device, each big enough for a
+    // screen-sized depth plane: making them in the hook, on the game's list's device, failed.
+    std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> spare;
+    UINT64 spare_size{};
     unsigned barriers{}, depth_barriers{}, skipped_small{}, skipped_type{};
     std::vector<std::string> notes; // each depth barrier, and why one was not copied (the first few)
     std::vector<std::string> seen; // each depth resource's description, once
@@ -85,7 +89,12 @@ void STDMETHODCALLTYPE hooked_barrier(ID3D12GraphicsCommandList* list, UINT coun
                 // end finds it already on its way.
                 if (b.Flags & D3D12_RESOURCE_BARRIER_FLAG_END_ONLY) { note("end of a split barrier, not copied"); continue; }
                 if (b.Transition.Subresource != D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES && b.Transition.Subresource != 0) { note("another plane, not copied"); continue; }
-                if (p.snapshots.size() >= 16) { note("enough copies"); continue; }
+                if (desc.DepthOrArraySize > 1) { note("an array (shadow cascades), not copied"); continue; }
+                if (std::any_of(p.snapshots.begin(), p.snapshots.end(), [&](const Snapshot& taken) { return taken.resource == key; })) {
+                    note("copied already");
+                    continue;
+                }
+                if (p.spare.empty()) { note("no readback buffer left"); continue; }
                 Microsoft::WRL::ComPtr<ID3D12Device> device;
                 if (FAILED(list->GetDevice(IID_PPV_ARGS(&device)))) { note("no device"); continue; }
                 Snapshot snap;
@@ -93,19 +102,9 @@ void STDMETHODCALLTYPE hooked_barrier(ID3D12GraphicsCommandList* list, UINT coun
                 UINT64 row_bytes{}, total{};
                 device->GetCopyableFootprints(&desc, 0, 1, 0, &snap.layout, &rows, &row_bytes, &total);
                 if (!total) { note("no copyable footprint"); continue; }
-                D3D12_HEAP_PROPERTIES heap{};
-                heap.Type = D3D12_HEAP_TYPE_READBACK;
-                D3D12_RESOURCE_DESC bytes{};
-                bytes.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-                bytes.Width = total;
-                bytes.Height = 1;
-                bytes.DepthOrArraySize = 1;
-                bytes.MipLevels = 1;
-                bytes.SampleDesc.Count = 1;
-                bytes.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-                if (FAILED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &bytes, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
-                                                           IID_PPV_ARGS(&snap.readback))))
-                    { note("readback buffer not made"); continue; }
+                if (total > p.spare_size) { note("bigger than the readback buffers"); continue; }
+                snap.readback = std::move(p.spare.back());
+                p.spare.pop_back();
                 // DEPTH_WRITE -> COPY_SOURCE, the copy, and back, before the game's own barrier.
                 D3D12_RESOURCE_BARRIER ours[2]{};
                 ours[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -235,6 +234,10 @@ void write_snapshots(detail::State& s) {
         }
     }
     log << std::format("{} picture(s).\n", snapshots.size());
+    {
+        std::lock_guard lock(p.mutex);
+        p.spare.clear();
+    }
     logging::printf(logging::Level::info, logging::Channel::graphics, "Fit Check depth probe: %zu depth picture(s) and depth-probe.txt written.",
                     snapshots.size());
 }
@@ -279,6 +282,31 @@ void depth_probe_present(State& s, std::uint32_t width, std::uint32_t height) {
         p.snapshots.clear(), p.seen.clear(), p.notes.clear();
         p.barriers = p.depth_barriers = p.skipped_small = p.skipped_type = 0;
         p.frame = 0, p.order = 0;
+        // Readback buffers: up to eight, each for a full-screen plane of four bytes a pixel.
+        p.spare.clear();
+        p.spare_size = ((std::uint64_t{width} * 4 + 255) / 256 * 256) * height + 65536;
+        D3D12_HEAP_PROPERTIES heap{};
+        heap.Type = D3D12_HEAP_TYPE_READBACK;
+        D3D12_RESOURCE_DESC bytes{};
+        bytes.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        bytes.Width = p.spare_size;
+        bytes.Height = 1;
+        bytes.DepthOrArraySize = 1;
+        bytes.MipLevels = 1;
+        bytes.SampleDesc.Count = 1;
+        bytes.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        HRESULT made = S_OK;
+        for (int i = 0; i < 8; ++i) {
+            Microsoft::WRL::ComPtr<ID3D12Resource> buffer;
+            made = s.device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &bytes, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&buffer));
+            if (FAILED(made)) break;
+            p.spare.push_back(std::move(buffer));
+        }
+        if (p.spare.empty()) {
+            logging::printf(logging::Level::warning, logging::Channel::graphics, "Fit Check depth probe: no readback buffer could be made (0x%08lx).",
+                            static_cast<unsigned long>(made));
+            return;
+        }
         p.armed.store(3); // this frame's recording onwards, two whole frames
         return;
     }
