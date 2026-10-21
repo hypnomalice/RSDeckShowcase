@@ -52,7 +52,7 @@ void turnaround_addon(SkateMenu& menu, const Model& model, const CallbacksV3& ca
         send_console(menu, callbacks, "turnaround set " + key + " " + value);
     };
 
-    begin_card(menu, "turnaround", "FIT CHECK", "A spinning picture of your board or skater, to share");
+    begin_card(menu, "turnaround", "FIT CHECK", "Spin your board or skater and save it, to show off your mods or your setup");
     note("Press V on the Board screen, or on the Skaters screen with no item grid open. It spins once by itself (hands off) "
          "and is saved to the Fit Checks folder beside Skate.exe. V again stops it.");
     if (!t.status.empty()) info(menu, t.busy ? "Now" : "Last", t.status);

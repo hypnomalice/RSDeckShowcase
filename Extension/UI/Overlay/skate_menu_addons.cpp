@@ -84,7 +84,7 @@ void all_addons(SkateMenu& menu, const Model& model) {
     addon_tile(menu, "addon-grind-exits", "GRIND EXITS", "Press LT or RT while grinding to pick the side you pop out to.",
                on_off(grind.available, grind.enabled), colour(grind.available, grind.enabled), addon_grind_exits);
     next();
-    addon_tile(menu, "addon-turnaround", "FIT CHECK", "Press V on the Board or Skaters screen to save a spinning GIF, APNG or WebM of your board or skater.",
+    addon_tile(menu, "addon-turnaround", "FIT CHECK", "Show off your boards, outfits and mods: press V on the Board or Skaters screen to save them spinning.",
                model.turnaround.busy ? "SAVING" : nullptr, skate_theme::good, addon_turnaround);
     next();
     addon_tile(menu, "addon-music", "MUSIC", "Spotify, YouTube Music, your own files and online radio through the game's music player.",
