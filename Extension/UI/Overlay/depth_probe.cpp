@@ -156,7 +156,7 @@ double depth_at(const std::uint8_t* row, std::uint32_t x, DXGI_FORMAT format, st
     }
 }
 
-void write_snapshots(State& s) {
+void write_snapshots(detail::State& s) {
     auto& p = probe();
     std::vector<Snapshot> snapshots;
     std::vector<std::string> seen;
@@ -176,7 +176,7 @@ void write_snapshots(State& s) {
     for (const auto& line : seen) log << "  " << line << "\n";
     // The copies are on the game's lists, submitted by now; this makes sure they are done.
     const UINT64 signal = ++s.next_fence;
-    const bool done = SUCCEEDED(s.queue->Signal(s.fence.Get(), signal)) && completed(signal, 5000);
+    const bool done = SUCCEEDED(s.queue->Signal(s.fence.Get(), signal)) && detail::completed(signal, 5000);
     if (!done) log << "The GPU did not finish in time; the pictures may be empty.\n";
     for (std::size_t i = 0; i < snapshots.size(); ++i) {
         const auto& snap = snapshots[i];
